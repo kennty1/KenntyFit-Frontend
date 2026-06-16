@@ -1,0 +1,2 @@
+"use strict";(globalThis.webpackChunkkennty_fitness_tracker=globalThis.webpackChunkkennty_fitness_tracker||[]).push([[538],{8538(e,t,i){i.d(t,{MotionWeb:()=>s});var n=i(5403);class s extends n.E_{constructor(){super(),this.registerWindowListener("devicemotion","accel"),this.registerWindowListener("deviceorientation","orientation")}}}}]);
+//# sourceMappingURL=538.434c39b8.chunk.js.map

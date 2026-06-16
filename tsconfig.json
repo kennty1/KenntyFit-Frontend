@@ -1,0 +1,39 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "jsx": "react-jsx",
+    "allowJs": true,
+    "checkJs": false,
+    "skipLibCheck": true,
+    "strict": false,
+    "moduleResolution": "node",
+    "resolveJsonModule": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "./*"
+      ]
+    }
+  },
+  "include": [
+    "app",
+    "src",
+    "components",
+    "context",
+    "services",
+    "utils",
+    "api"
+  ],
+  "exclude": [
+    "node_modules",
+    "build",
+    "android",
+    "ios",
+    "**/__tests__/**",
+    "**/__mocks__/**"
+  ],
+  "extends": "expo/tsconfig.base"
+}
