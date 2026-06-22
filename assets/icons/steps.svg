@@ -1,0 +1,9 @@
+<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" fill="#0099ff">
+  <!-- Footsteps -->
+  <circle cx="20" cy="20" r="6"/>
+  <circle cx="44" cy="32" r="6"/>
+  <circle cx="24" cy="48" r="6"/>
+  <circle cx="48" cy="56" r="6"/>
+  <path d="M 20 26 Q 22 30 24 34 Q 26 38 24 42" stroke="#0099ff" stroke-width="2" fill="none"/>
+  <path d="M 44 38 Q 46 42 48 46 Q 50 50 48 54" stroke="#0099ff" stroke-width="2" fill="none"/>
+</svg>

@@ -1,10 +1,10 @@
 {
   "expo": {
-    "name": "kennyfit-app",
+    "name": "Kennyfit",
     "slug": "kennyfit-app",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./profilephoto/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true
@@ -12,13 +12,35 @@
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
-      }
+        "foregroundImage": "./profilephoto/icon.png",
+        "backgroundImage": "./profilephoto/icon.png",
+        "monochromeImage": "./profilephoto/icon.png"
+      },
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+        "android.permission.CAMERA"
+      ],
+      "package": "com.kennty.kennyfitapp"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
-    }
+      "favicon": "./profilephoto/favicon.png"
+    },
+    "plugins": [
+      "expo-asset",
+      "expo-font",
+      "expo-audio",
+      "expo-video",
+      "expo-camera",
+       [
+        "expo-sensors",
+        {
+          "motionPermission": "Allow KenntyFit to access motion sensors."
+        }
+      ],
+      "expo-splash-screen"
+    ]
   }
 }
