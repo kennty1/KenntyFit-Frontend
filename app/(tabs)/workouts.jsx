@@ -276,10 +276,10 @@ export default function Workouts() {
       };
 
       try {
-        await API.post("/workouts", richPayload);
+        await API.post(`/workouts/user/${user.id}/auto-track`, richPayload);
       } catch (firstError) {
         try {
-          await API.post("/workouts", fallbackPayload);
+          await API.post(`/workouts/user/${user.id}/auto-track`, fallbackPayload);
         } catch (secondError) {
           throw secondError;
         }

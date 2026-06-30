@@ -70,7 +70,7 @@ export default function Water() {
     sub: { fontSize: 13, color: theme.muted, marginBottom: 20 },
     alertWarn: { backgroundColor: "rgba(251,191,36,0.1)", borderRadius: 8, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: "rgba(251,191,36,0.3)" },
     alertText: { color: "#fbbf24", fontSize: 13 },
-    progressCard: { backgroundColor: theme.surface, borderRadius: 16, padding: 24, alignItems: "center", marginBottom: 24, borderWidth: 1, borderColor: theme.border },
+    progressCard: { backgroundColor: theme.surface, borderRadius: 16, padding: 24, alignItems: "center", marginBottom: 20, borderWidth: 1, borderColor: theme.border },
     motivationIcon: { marginBottom: 8 },
     totalMl: { fontSize: 52, fontWeight: "900", color: theme.accent },
     totalLabel: { fontSize: 13, color: theme.muted, marginBottom: 16 },
@@ -116,7 +116,7 @@ export default function Water() {
           <MaterialCommunityIcons name="water-outline" size={24} color={theme.accent} />
           <Text style={styles.title}>Hydration</Text>
         </View>
-        <Text style={styles.sub}>Auto-recorded water tracking</Text>
+        <Text style={styles.sub}>Auto-detected water tracking</Text>
 
         {error ? <View style={styles.alertWarn}><Text style={styles.alertText}>{error}</Text></View> : null}
 
@@ -152,7 +152,11 @@ export default function Water() {
           todayEntries.map((entry) => (
             <View key={entry.id} style={styles.entryRow}>
               <View style={styles.entryIconWrap}>
-                <MaterialCommunityIcons name="cup-water" size={18} color={theme.accent} />
+                <MaterialCommunityIcons
+                  name={entry.trackingMode === "MANUAL" ? "pencil" : "cup-water"}
+                  size={18}
+                  color={theme.accent}
+                />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.entryAmt}>{entry.amountMl} ml</Text>

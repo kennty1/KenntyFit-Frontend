@@ -7,6 +7,8 @@ import {
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useAuth } from "../context/AuthContext";
 import { COUNTRIES } from "../utils/countries";
+import { useTheme } from "../context/ThemeContext";
+
 
 const GENDERS = ["MALE", "FEMALE", "OTHER"];
 const GOALS = ["WEIGHT LOSS", "MUSCLE GAIN", "MAINTAIN WEIGHT", "IMPROVE FITNESS"];

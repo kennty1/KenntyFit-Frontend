@@ -30,6 +30,7 @@ function LayoutWithTheme() {
         <Stack.Screen name="login" />
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="settings" />
+        <Stack.Screen name="profile" />
         <Stack.Screen name="food-scanner" />
         <Stack.Screen name="meal-suggestions" />
         <Stack.Screen name="pricing" />

@@ -1,6 +1,7 @@
 import { Tabs } from "expo-router";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import WaterDetectionPrompt from "../../components/WaterDetectionPrompt";
+import SubscriptionGuard from "../../components/SubscriptionGuard";
 import { StyleSheet } from "react-native";
 import { useTheme } from "../../context/ThemeContext";
 import { useMemo } from "react";
@@ -14,9 +15,9 @@ const TAB_ICON = {
   settings: { name: "cog-outline" },
 };
 
-export default function TabLayout() {
+function Tabs_() {
   const { theme } = useTheme();
-  
+
   const styles = useMemo(() => StyleSheet.create({
     tabBar: {
       backgroundColor: theme.surface,
@@ -27,7 +28,7 @@ export default function TabLayout() {
       paddingTop: 8,
     },
   }), [theme]);
-  
+
   return (
     <>
       <Tabs
@@ -55,5 +56,13 @@ export default function TabLayout() {
       </Tabs>
       <WaterDetectionPrompt />
     </>
+  );
+}
+
+export default function TabLayout() {
+  return (
+    <SubscriptionGuard>
+      <Tabs_ />
+    </SubscriptionGuard>
   );
 }

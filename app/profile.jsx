@@ -6,10 +6,10 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { useTheme } from "../../context/ThemeContext";
-import { useAuth } from "../../context/AuthContext";
-import API, { API_BASE_URL } from "../../api/axios";
-import { COUNTRIES } from "../../utils/countries";
+import { useTheme } from "../context/ThemeContext";
+import { useAuth } from "../context/AuthContext";
+import API, { API_BASE_URL } from "../api/axios";
+import { COUNTRIES } from "../utils/countries";
 
 const GOALS = ["WEIGHT LOSS", "MUSCLE GAIN", "MAINTAIN WEIGHT", "IMPROVE FITNESS"];
 const ACTS = ["SEDENTARY", "LIGHTLY ACTIVE", "MODERATELY ACTIVE", "VERY ACTIVE", "EXTRA ACTIVE"];

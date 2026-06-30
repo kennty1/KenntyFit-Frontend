@@ -1,5 +1,14 @@
 // services/hydrationAutoTracker.js
-// Advanced hydration detection using multiple sensors and motion patterns
+// Advanced hydration detection using multiple sensors and motion patterns.
+//
+// IMPORTANT SCOPE NOTE: this only runs reliably while the app is in the
+// foreground. Both iOS and Android aggressively suspend JS execution and
+// sensor listeners once an app is backgrounded — there is no reliable way
+// to keep continuous accelerometer/gyroscope sampling running silently in
+// the background in a managed Expo app. This is intentional, not a bug:
+// see AutoHydrationTracker.jsx for the foreground-only lifecycle, paired
+// with scheduled reminder notifications and a manual quick-log button to
+// cover the times the app isn't open.
 
 import { Accelerometer, Gyroscope } from "expo-sensors";
 import { EventEmitter } from "eventemitter3";
@@ -18,62 +27,61 @@ let motionBuffer = [];
 let lastEmitTime = 0;
 let trackingStartedAt = 0;
 
+// Latest gyroscope reading, updated by its own listener and read by the
+// accelerometer listener for combined analysis. This is the fix for the
+// previous bug where gyro data was always {0,0,0} because nothing ever
+// stored it for the accelerometer callback to read.
+let latestGyroData = { x: 0, y: 0, z: 0, timestamp: 0 };
+const GYRO_STALENESS_MS = 500; // ignore gyro readings older than this when combining with accel
+
 // Enhanced detection parameters
 const SIP_WINDOW_MS = 2500;          // 2.5 second window for a drinking motion
-const MIN_CONFIDENCE_TO_LOG = 0.82;  // Only log if 82%+ confident (HIGH confidence)
+const MIN_CONFIDENCE_TO_LOG = 0.65;  // Lowered from 0.82 - see note below
 const EMIT_COOLDOWN_MS = 45000;      // Wait 45 seconds between detections
 const MIN_SESSION_MS = 8000;         // Wait 8 seconds before considering first sip
 
 // Motion thresholds for detecting hand-to-mouth pattern
 const UPWARD_ACCELERATION_THRESHOLD = 0.5;   // Hand lifting up
 const ROTATION_THRESHOLD = 0.3;               // Wrist rotation (drinking angle)
-const DOWNWARD_ACCELERATION_THRESHOLD = 0.4; // Hand lowering
 const VERTICAL_ACCEL_THRESHOLD = 0.45;       // Z-axis acceleration (up/down)
 
 /**
  * Advanced drinking motion detection
  * Detects: Upward hand motion + wrist rotation + downward motion
- * Typical drinking sequence:
- * 1. Hand accelerates upward (bringing cup to mouth)
- * 2. Wrist rotates (tilting head back or cup angle)
- * 3. Hand moves downward (swallowing, cup goes down)
  */
 const analyzeDrinkingPattern = (accelData, gyroData) => {
-  if (!accelData || !gyroData) return { isDrinking: false, confidence: 0 };
+  if (!accelData) return { isDrinking: false, confidence: 0, patterns: {} };
 
   const { x: ax, y: ay, z: az } = accelData;
-  const { x: gx, y: gy, z: gz } = gyroData;
+  const { x: gx, y: gy } = gyroData || { x: 0, y: 0 };
 
-  // Calculate motion intensity
   const accelMagnitude = Math.sqrt(ax * ax + ay * ay + az * az);
-  const gyroMagnitude = Math.sqrt(gx * gx + gy * gy + gz * gz);
 
-  // Detect specific drinking patterns
   let drinkingScore = 0;
 
   // Pattern 1: Upward hand motion (Z-axis positive acceleration)
   if (az > VERTICAL_ACCEL_THRESHOLD) {
-    drinkingScore += 0.25; // Hand moving upward
+    drinkingScore += 0.25;
   }
 
-  // Pattern 2: Wrist rotation during upward motion (gyroscope)
+  // Pattern 2: Wrist rotation during upward motion (gyroscope) — now actually reads live data
   if (Math.abs(gx) > ROTATION_THRESHOLD || Math.abs(gy) > ROTATION_THRESHOLD) {
-    drinkingScore += 0.25; // Wrist rotating (tilting for drinking)
+    drinkingScore += 0.25;
   }
 
   // Pattern 3: Forward/backward head tilt (X-axis acceleration)
   if (Math.abs(ax) > UPWARD_ACCELERATION_THRESHOLD) {
-    drinkingScore += 0.15; // Head tilting motion
+    drinkingScore += 0.15;
   }
 
   // Pattern 4: Overall motion intensity (must be gentle, not violent shake)
   if (accelMagnitude > 0.5 && accelMagnitude < 2.5) {
-    drinkingScore += 0.15; // Natural drinking speed
+    drinkingScore += 0.15;
   }
 
   // Pattern 5: Y-axis consistency (side-to-side should be minimal)
   if (Math.abs(ay) < 0.5) {
-    drinkingScore += 0.20; // Stable hold, not shaking
+    drinkingScore += 0.20;
   }
 
   return {
@@ -89,13 +97,9 @@ const analyzeDrinkingPattern = (accelData, gyroData) => {
   };
 };
 
-/**
- * Track consecutive drinking motions to confirm it's actual drinking
- */
 const recordMotionEvent = (analysis) => {
   const now = Date.now();
 
-  // Add to buffer with timestamp
   motionBuffer.push({
     confidence: analysis.confidence,
     isDrinking: analysis.isDrinking,
@@ -103,10 +107,8 @@ const recordMotionEvent = (analysis) => {
     timestamp: now,
   });
 
-  // Keep only recent events (within SIP_WINDOW)
   motionBuffer = motionBuffer.filter((e) => now - e.timestamp < SIP_WINDOW_MS);
 
-  // Count high-confidence drinking detections
   const drinkingDetections = motionBuffer.filter((e) => e.isDrinking).length;
   const avgConfidence =
     motionBuffer.length > 0
@@ -116,7 +118,7 @@ const recordMotionEvent = (analysis) => {
   return {
     drinkingDetections,
     averageConfidence: avgConfidence,
-    shouldLog: drinkingDetections >= 3 && avgConfidence > MIN_CONFIDENCE_TO_LOG, // 3 consecutive high-confidence detections
+    shouldLog: drinkingDetections >= 3 && avgConfidence > MIN_CONFIDENCE_TO_LOG,
   };
 };
 
@@ -126,27 +128,30 @@ export const startHydrationAutoTracking = async ({ userId, sourceDevice = "PHONE
   trackingUserId = userId;
   trackingStartedAt = Date.now();
   motionBuffer = [];
+  latestGyroData = { x: 0, y: 0, z: 0, timestamp: 0 };
 
-  // Set high-frequency updates for accurate motion detection
-  Accelerometer.setUpdateInterval(200); // 200ms updates
+  Accelerometer.setUpdateInterval(200);
   Gyroscope.setUpdateInterval(200);
 
-  console.log("[Hydration] Starting advanced motion detection for user:", userId);
+  console.log("[Hydration] Starting motion detection (foreground) for user:", userId);
 
-  // Listen to accelerometer
+  // Gyroscope listener now actually stores its data for the accelerometer
+  // callback to read, with a timestamp so we can detect stale readings.
+  gyroSubscription = Gyroscope.addListener((gyroData) => {
+    latestGyroData = { ...gyroData, timestamp: Date.now() };
+  });
+
   accelSubscription = Accelerometer.addListener(async (accelData) => {
     const now = Date.now();
 
-    // Get latest gyro data (simplified - in production, use proper sync)
-    let latestGyroData = { x: 0, y: 0, z: 0 };
+    // Only use gyro data if it's fresh; otherwise treat as unavailable
+    // rather than silently using stale/zeroed values.
+    const gyroIsFresh = now - latestGyroData.timestamp < GYRO_STALENESS_MS;
+    const gyroDataForAnalysis = gyroIsFresh ? latestGyroData : { x: 0, y: 0, z: 0 };
 
-    // Analyze combined motion
-    const analysis = analyzeDrinkingPattern(accelData, latestGyroData);
-
-    // Record and evaluate pattern
+    const analysis = analyzeDrinkingPattern(accelData, gyroDataForAnalysis);
     const evaluation = recordMotionEvent(analysis);
 
-    // Only emit CONFIRMED detection when VERY confident and enough consecutive detections
     if (
       now - trackingStartedAt >= MIN_SESSION_MS &&
       evaluation.shouldLog &&
@@ -154,31 +159,24 @@ export const startHydrationAutoTracking = async ({ userId, sourceDevice = "PHONE
     ) {
       lastEmitTime = now;
 
-      console.log("[Hydration] ✓ High-confidence drinking detected!", {
+      console.log("[Hydration] High-confidence drinking detected", {
         confidence: (evaluation.averageConfidence * 100).toFixed(1) + "%",
         detections: evaluation.drinkingDetections,
         patterns: analysis.patterns,
       });
 
-      // AUTO-LOG WITHOUT PROMPT - app is confident
       hydrationEmitter.emit(HYDRATION_EVENTS.DETECTED, {
         userId: trackingUserId,
         sipCount: evaluation.drinkingDetections,
         sourceDevice,
         sensorType: "ADVANCED_MOTION_PATTERN",
-        confidenceScore: Math.min(1, evaluation.averageConfidence * 1.1), // Boost confidence due to multiple detections
+        confidenceScore: Math.min(1, evaluation.averageConfidence * 1.1),
         detectedAt: new Date().toISOString(),
         analysisData: analysis,
       });
 
-      motionBuffer = []; // Reset buffer after successful detection
+      motionBuffer = [];
     }
-  });
-
-  // Listen to gyroscope for rotation patterns
-  gyroSubscription = Gyroscope.addListener((gyroData) => {
-    // Store gyro data for combined analysis
-    // In production, sync accelerometer + gyroscope more carefully
   });
 };
 
@@ -194,6 +192,7 @@ export const stopHydrationAutoTracking = async () => {
   motionBuffer = [];
   trackingUserId = null;
   trackingStartedAt = 0;
+  latestGyroData = { x: 0, y: 0, z: 0, timestamp: 0 };
 
-  console.log("[Hydration] Stopped motion detection");
+  console.log("[Hydration] Stopped motion detection (app backgrounded or unmounted)");
 };

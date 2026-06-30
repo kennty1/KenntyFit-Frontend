@@ -1,13 +1,14 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
-  SafeAreaView, FlatList,
+  SafeAreaView, ActivityIndicator,
 } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "../context/AuthContext";
-import { getMealsByCountry, getMealSuggestion } from "../utils/nigerianFoods";
+import { useTheme } from "../context/ThemeContext";
+import API from "../api/axios";
 
 const FILTER_TYPES = ["all", "breakfast", "lunch", "dinner", "favorites"];
 const MEAL_ICON_MAP = {
@@ -21,117 +22,145 @@ const getMealIcon = (type) => MEAL_ICON_MAP[String(type || "").toLowerCase()] ||
 
 export default function MealSuggestions() {
   const router = useRouter();
-  const [selectedType, setSelectedType] = useState("all");
-  const [suggestion, setSuggestion] = useState(null);
-  const [favorites, setFavorites] = useState([]);
   const { user } = useAuth();
-  const activeCountry = user?.country || "Nigeria";
-  const activeHealthStatus = user?.healthStatus || "None";
+  const { theme } = useTheme();
+  const [selectedType, setSelectedType] = useState("all");
+  const [suggestionSet, setSuggestionSet] = useState(null);
+  const [favorites, setFavorites] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState("");
 
   const handleBack = () => {
-    if (router.canGoBack()) {
-      router.back();
-    } else {
-      router.replace("/(tabs)");
-    }
+    if (router.canGoBack()) router.back();
+    else router.replace("/(tabs)");
   };
 
-  // Load favorites from AsyncStorage (replaces localStorage)
   useEffect(() => {
     AsyncStorage.getItem("favoriteMeals").then((saved) => {
       if (saved) setFavorites(JSON.parse(saved));
     }).catch(() => {});
   }, []);
 
-  useEffect(() => {
-    setSuggestion(getMealSuggestion(activeCountry, activeHealthStatus));
-  }, [activeCountry, activeHealthStatus]);
+  const fetchSuggestions = useCallback(async (isRefresh = false) => {
+    if (!user?.id) { setLoading(false); return; }
+    if (isRefresh) setRefreshing(true); else setLoading(true);
+    setError("");
+    try {
+      const res = await API.get(`/meal-suggestions/user/${user.id}`);
+      setSuggestionSet(res.data || null);
+    } catch (e) {
+      setError("Could not load suggestions right now. Please try again.");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [user?.id]);
+
+  useEffect(() => { fetchSuggestions(); }, [fetchSuggestions]);
 
   const saveFavorites = async (updated) => {
     setFavorites(updated);
     await AsyncStorage.setItem("favoriteMeals", JSON.stringify(updated));
   };
 
-  const toggleFavorite = (meal, mealType) => {
-    const isFav = favorites.some((f) => f.id === meal.id && f.mealType === mealType);
+  const isFavorited = (meal) => favorites.some((f) => f.id === meal.id);
+
+  const toggleFavorite = (meal) => {
+    const isFav = isFavorited(meal);
     const updated = isFav
-      ? favorites.filter((f) => !(f.id === meal.id && f.mealType === mealType))
-      : [...favorites, { ...meal, mealType }];
+      ? favorites.filter((f) => f.id !== meal.id)
+      : [...favorites, meal];
     saveFavorites(updated);
   };
 
-  const isFavorited = (meal, mealType) =>
-    favorites.some((f) => f.id === meal.id && f.mealType === mealType);
+  const allMeals = useMemo(() => {
+    if (!suggestionSet) return [];
+    return [
+      ...(suggestionSet.breakfast || []),
+      ...(suggestionSet.lunch || []),
+      ...(suggestionSet.dinner || []),
+    ];
+  }, [suggestionSet]);
 
-  const getDisplayMeals = (country, healthStatus) => {
-    if (selectedType === "all") {
-      return ["breakfast", "lunch", "dinner"].flatMap((type) =>
-        getMealsByCountry(country, type, healthStatus).map((meal) => ({ ...meal, mealType: type }))
-      );
-    }
+  const displayMeals = useMemo(() => {
     if (selectedType === "favorites") return favorites;
-    return getMealsByCountry(country, selectedType, healthStatus).map((m) => ({ ...m, mealType: selectedType }));
-  };
+    if (selectedType === "all") return allMeals;
+    return (suggestionSet?.[selectedType]) || [];
+  }, [selectedType, allMeals, favorites, suggestionSet]);
 
-  const displayMeals = getDisplayMeals(activeCountry, activeHealthStatus);
+  const styles = useMemo(() => StyleSheet.create({
+    safe: { flex: 1, backgroundColor: theme.background },
+    container: { padding: 20, paddingBottom: 40 },
+    center: { flex: 1, alignItems: "center", justifyContent: "center", paddingTop: 60 },
+    backBtn: { flexDirection: "row", alignItems: "center", marginBottom: 16, paddingVertical: 8 },
+    backText: { fontSize: 16, fontWeight: "600", color: theme.accent, marginLeft: 4 },
+    titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 },
+    titleLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
+    title: { fontSize: 24, fontWeight: "800", color: theme.text },
+    refreshBtn: { padding: 8 },
+    sub: { fontSize: 13, color: theme.muted, marginBottom: 20 },
+    alertWarn: { backgroundColor: "rgba(251,191,36,0.1)", borderRadius: 8, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: "rgba(251,191,36,0.3)" },
+    alertText: { color: "#fbbf24", fontSize: 13 },
+    filterScroll: { marginBottom: 20 },
+    filterBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, marginRight: 8, borderWidth: 1, borderColor: theme.border },
+    filterBtnActive: { backgroundColor: theme.accent, borderColor: theme.accent },
+    filterContent: { flexDirection: "row", alignItems: "center", gap: 6 },
+    filterText: { fontSize: 13, fontWeight: "600", color: theme.muted },
+    filterTextActive: { color: theme.accentText },
+    emptyCard: { backgroundColor: theme.surface, borderRadius: 14, padding: 40, alignItems: "center", borderWidth: 1, borderColor: theme.border },
+    emptyIcon: { marginBottom: 10 },
+    emptyText: { fontSize: 14, color: theme.muted, textAlign: "center" },
+    mealCard: { backgroundColor: theme.surface, borderRadius: 14, overflow: "hidden", marginBottom: 16, borderWidth: 1, borderColor: theme.border },
+    mealBanner: { backgroundColor: theme.accent, padding: 28, alignItems: "center", justifyContent: "center", position: "relative" },
+    mealBannerIconWrap: { width: 68, height: 68, borderRadius: 34, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.14)" },
+    favBtn: { position: "absolute", top: 10, right: 10, backgroundColor: theme.surface, borderRadius: 20, width: 34, height: 34, alignItems: "center", justifyContent: "center" },
+    mealContent: { padding: 16 },
+    mealTypeLabel: { fontSize: 10, color: theme.accent, textTransform: "uppercase", letterSpacing: 1, fontWeight: "700", marginBottom: 4 },
+    mealName: { fontSize: 16, fontWeight: "700", color: theme.text, marginBottom: 6 },
+    mealDesc: { fontSize: 13, color: theme.muted, marginBottom: 12, lineHeight: 18 },
+    mealStats: { flexDirection: "row", gap: 8, marginBottom: 12 },
+    mealStatBox: { flex: 1, backgroundColor: "rgba(0,229,160,0.08)", borderRadius: 6, padding: 8 },
+    mealStatLabel: { fontSize: 10, color: theme.muted, marginBottom: 2 },
+    mealStatValue: { fontSize: 14, fontWeight: "700", color: theme.text },
+    ingredientsRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 10 },
+    ingredientTag: { backgroundColor: "rgba(0,229,160,0.12)", borderRadius: 4, paddingHorizontal: 8, paddingVertical: 4 },
+    ingredientText: { fontSize: 11, color: theme.accent },
+    prepTime: { fontSize: 12, color: theme.muted },
+  }), [theme]);
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <View style={styles.center}><ActivityIndicator size="large" color={theme.accent} /></View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
         <TouchableOpacity style={styles.backBtn} onPress={handleBack}>
-          <MaterialCommunityIcons name="chevron-left" size={24} color="#00e5a0" />
+          <MaterialCommunityIcons name="chevron-left" size={24} color={theme.accent} />
           <Text style={styles.backText}>Back</Text>
         </TouchableOpacity>
 
         <View style={styles.titleRow}>
-          <MaterialCommunityIcons name="food-apple-outline" size={24} color="#00e5a0" />
-          <Text style={styles.title}>Food Suggestions</Text>
-        </View>
-        <Text style={styles.sub}>Meals from {activeCountry} matched to {activeHealthStatus}</Text>
-
-        {/* Today's Suggestion */}
-        {suggestion && (
-          <View style={styles.suggestionCard}>
-            <View style={styles.suggestionHeader}>
-              <View style={styles.suggestionIconWrap}>
-                <MaterialCommunityIcons name={getMealIcon(suggestion.type)} size={28} color="#fff" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.suggestionType}>Today's {suggestion.type}</Text>
-                <Text style={styles.suggestionName}>{suggestion.meal.name}</Text>
-              </View>
-            </View>
-            <Text style={styles.suggestionDesc}>{suggestion.meal.description}</Text>
-            <View style={styles.suggestionStats}>
-              {[["Calories", suggestion.meal.calories], ["Protein", suggestion.meal.protein], ["Prep Time", suggestion.meal.prepTime]].map(([k, v]) => (
-                <View key={k} style={styles.suggestionStat}>
-                  <Text style={styles.suggestionStatLabel}>{k}</Text>
-                  <Text style={styles.suggestionStatValue}>{v}</Text>
-                </View>
-              ))}
-            </View>
-            <View style={styles.suggestionBtns}>
-              <TouchableOpacity style={styles.suggestionBtn} onPress={() => setSuggestion(getMealSuggestion(activeCountry, activeHealthStatus))}>
-                <Text style={styles.suggestionBtnText}>
-                  <MaterialCommunityIcons name="refresh" size={14} color="#fff" /> Get Another Idea
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.suggestionBtn, isFavorited(suggestion.meal, suggestion.type) && styles.suggestionBtnActive]}
-                onPress={() => toggleFavorite(suggestion.meal, suggestion.type)}
-              >
-                <Text style={styles.suggestionBtnText}>
-                  <MaterialCommunityIcons
-                    name={isFavorited(suggestion.meal, suggestion.type) ? "heart" : "heart-outline"}
-                    size={14}
-                    color="#fff"
-                  />{" "}
-                  {isFavorited(suggestion.meal, suggestion.type) ? "Saved" : "Save"}
-                </Text>
-              </TouchableOpacity>
-            </View>
+          <View style={styles.titleLeft}>
+            <MaterialCommunityIcons name="food-apple-outline" size={24} color={theme.accent} />
+            <Text style={styles.title}>Food Suggestions</Text>
           </View>
-        )}
+          <TouchableOpacity style={styles.refreshBtn} onPress={() => fetchSuggestions(true)} disabled={refreshing}>
+            {refreshing
+              ? <ActivityIndicator size="small" color={theme.accent} />
+              : <MaterialCommunityIcons name="refresh" size={22} color={theme.accent} />}
+          </TouchableOpacity>
+        </View>
+        <Text style={styles.sub}>
+          Personalized for {user?.country || "your country"} · {user?.healthStatus || "None"}
+        </Text>
+
+        {error ? <View style={styles.alertWarn}><Text style={styles.alertText}>{error}</Text></View> : null}
 
         {/* Filter tabs */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
@@ -145,7 +174,7 @@ export default function MealSuggestions() {
                 <MaterialCommunityIcons
                   name={type === "all" ? "silverware-fork-knife" : getMealIcon(type)}
                   size={14}
-                  color={selectedType === type ? "#0a0e1a" : "#6b7a99"}
+                  color={selectedType === type ? theme.accentText : theme.muted}
                 />
                 <Text style={[styles.filterText, selectedType === type && styles.filterTextActive]}>
                   {type === "all" ? "All Meals"
@@ -163,66 +192,60 @@ export default function MealSuggestions() {
             <MaterialCommunityIcons
               name={selectedType === "favorites" ? "heart-outline" : "silverware-fork-knife"}
               size={36}
-              color="#00e5a0"
+              color={theme.accent}
               style={styles.emptyIcon}
             />
             <Text style={styles.emptyText}>
-              {selectedType === "favorites" ? "No favorites yet! Save some meals." : "No meals found."}
+              {selectedType === "favorites" ? "No favorites yet! Save some meals you like." : "No suggestions found."}
             </Text>
           </View>
         ) : (
-          displayMeals.map((meal, idx) => (
-            <View key={`${meal.id}-${idx}`} style={styles.mealCard}>
-              {/* Image banner */}
+          displayMeals.map((meal) => (
+            <View key={meal.id} style={styles.mealCard}>
               <View style={styles.mealBanner}>
                 <View style={styles.mealBannerIconWrap}>
                   <MaterialCommunityIcons name={getMealIcon(meal.mealType)} size={36} color="#fff" />
                 </View>
-                <TouchableOpacity
-                  style={styles.favBtn}
-                  onPress={() => toggleFavorite(meal, meal.mealType || selectedType)}
-                >
-                  <Text style={styles.favBtnText}>
-                    <MaterialCommunityIcons
-                      name={isFavorited(meal, meal.mealType || selectedType) ? "heart" : "heart-outline"}
-                      size={16}
-                      color={isFavorited(meal, meal.mealType || selectedType) ? "#ff6b6b" : "#6b7a99"}
-                    />
-                  </Text>
+                <TouchableOpacity style={styles.favBtn} onPress={() => toggleFavorite(meal)}>
+                  <MaterialCommunityIcons
+                    name={isFavorited(meal) ? "heart" : "heart-outline"}
+                    size={18}
+                    color={isFavorited(meal) ? "#ff6b6b" : theme.muted}
+                  />
                 </TouchableOpacity>
               </View>
 
-              {/* Content */}
               <View style={styles.mealContent}>
+                <Text style={styles.mealTypeLabel}>{meal.mealType}</Text>
                 <Text style={styles.mealName}>{meal.name}</Text>
                 <Text style={styles.mealDesc} numberOfLines={2}>{meal.description}</Text>
 
-                {/* Stats */}
                 <View style={styles.mealStats}>
                   <View style={styles.mealStatBox}>
                     <Text style={styles.mealStatLabel}>Calories</Text>
-                    <Text style={styles.mealStatValue}>{meal.calories}</Text>
+                    <Text style={styles.mealStatValue}>{meal.calories} kcal</Text>
                   </View>
                   <View style={styles.mealStatBox}>
                     <Text style={styles.mealStatLabel}>Protein</Text>
-                    <Text style={styles.mealStatValue}>{meal.protein}</Text>
+                    <Text style={styles.mealStatValue}>{meal.protein}g</Text>
                   </View>
                 </View>
 
-                {/* Ingredients */}
-                <View style={styles.ingredientsRow}>
-                  {meal.ingredients.slice(0, 3).map((ing, i) => (
-                    <View key={i} style={styles.ingredientTag}>
-                      <Text style={styles.ingredientText}>{ing}</Text>
-                    </View>
-                  ))}
-                  {meal.ingredients.length > 3 && (
-                    <Text style={styles.ingredientMore}>+{meal.ingredients.length - 3}</Text>
-                  )}
-                </View>
+                {Array.isArray(meal.ingredients) && (
+                  <View style={styles.ingredientsRow}>
+                    {meal.ingredients.slice(0, 3).map((ing, i) => (
+                      <View key={i} style={styles.ingredientTag}>
+                        <Text style={styles.ingredientText}>{ing}</Text>
+                      </View>
+                    ))}
+                    {meal.ingredients.length > 3 && (
+                      <Text style={styles.prepTime}>+{meal.ingredients.length - 3}</Text>
+                    )}
+                  </View>
+                )}
 
                 <Text style={styles.prepTime}>
-                  <MaterialCommunityIcons name="clock-outline" size={12} color="#6b7a99" /> {meal.prepTime}
+                  <MaterialCommunityIcons name="clock-outline" size={12} color={theme.muted} /> {meal.prepTime}
                 </Text>
               </View>
             </View>
@@ -232,53 +255,3 @@ export default function MealSuggestions() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#0a0e1a" },
-  container: { padding: 20, paddingBottom: 40 },
-  backBtn: { flexDirection: "row", alignItems: "center", marginBottom: 16, paddingVertical: 8 },
-  backText: { fontSize: 16, fontWeight: "600", color: "#00e5a0", marginLeft: 4 },
-  titleRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 },
-  title: { fontSize: 24, fontWeight: "800", color: "#fff", marginBottom: 4 },
-  sub: { fontSize: 13, color: "#6b7a99", marginBottom: 20 },
-  suggestionCard: { backgroundColor: "#00b887", borderRadius: 16, padding: 20, marginBottom: 24 },
-  suggestionHeader: { flexDirection: "row", alignItems: "center", gap: 14, marginBottom: 12 },
-  suggestionIconWrap: { width: 52, height: 52, borderRadius: 26, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.18)" },
-  suggestionType: { fontSize: 11, color: "rgba(255,255,255,0.85)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 3 },
-  suggestionName: { fontSize: 20, fontWeight: "800", color: "#fff" },
-  suggestionDesc: { fontSize: 13, color: "rgba(255,255,255,0.9)", marginBottom: 14, lineHeight: 20 },
-  suggestionStats: { flexDirection: "row", gap: 10, marginBottom: 14 },
-  suggestionStat: { flex: 1, backgroundColor: "rgba(255,255,255,0.2)", borderRadius: 8, padding: 10 },
-  suggestionStatLabel: { fontSize: 10, color: "rgba(255,255,255,0.8)", marginBottom: 3 },
-  suggestionStatValue: { fontSize: 16, fontWeight: "700", color: "#fff" },
-  suggestionBtns: { flexDirection: "row", gap: 10 },
-  suggestionBtn: { flex: 1, backgroundColor: "rgba(255,255,255,0.2)", borderRadius: 8, padding: 11, alignItems: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.4)" },
-  suggestionBtnActive: { backgroundColor: "rgba(255,255,255,0.35)" },
-  suggestionBtnText: { fontSize: 13, fontWeight: "600", color: "#fff" },
-  filterScroll: { marginBottom: 20 },
-  filterBtn: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, marginRight: 8, borderWidth: 1, borderColor: "#1e2535" },
-  filterBtnActive: { backgroundColor: "#00e5a0", borderColor: "#00e5a0" },
-  filterContent: { flexDirection: "row", alignItems: "center", gap: 6 },
-  filterText: { fontSize: 13, fontWeight: "600", color: "#6b7a99" },
-  filterTextActive: { color: "#0a0e1a" },
-  emptyCard: { backgroundColor: "#111827", borderRadius: 14, padding: 40, alignItems: "center", borderWidth: 1, borderColor: "#1e2535" },
-  emptyIcon: { marginBottom: 10 },
-  emptyText: { fontSize: 14, color: "#6b7a99", textAlign: "center" },
-  mealCard: { backgroundColor: "#111827", borderRadius: 14, overflow: "hidden", marginBottom: 16, borderWidth: 1, borderColor: "#1e2535" },
-  mealBanner: { backgroundColor: "#00b887", padding: 28, alignItems: "center", justifyContent: "center", position: "relative" },
-  mealBannerIconWrap: { width: 68, height: 68, borderRadius: 34, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(255,255,255,0.14)" },
-  favBtn: { position: "absolute", top: 10, right: 10, backgroundColor: "#fff", borderRadius: 20, width: 34, height: 34, alignItems: "center", justifyContent: "center" },
-  favBtnText: { fontSize: 16 },
-  mealContent: { padding: 16 },
-  mealName: { fontSize: 16, fontWeight: "700", color: "#fff", marginBottom: 6 },
-  mealDesc: { fontSize: 13, color: "#6b7a99", marginBottom: 12, lineHeight: 18 },
-  mealStats: { flexDirection: "row", gap: 8, marginBottom: 12 },
-  mealStatBox: { flex: 1, backgroundColor: "rgba(0,229,160,0.08)", borderRadius: 6, padding: 8 },
-  mealStatLabel: { fontSize: 10, color: "#6b7a99", marginBottom: 2 },
-  mealStatValue: { fontSize: 14, fontWeight: "700", color: "#fff" },
-  ingredientsRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 10 },
-  ingredientTag: { backgroundColor: "rgba(0,229,160,0.12)", borderRadius: 4, paddingHorizontal: 8, paddingVertical: 4 },
-  ingredientText: { fontSize: 11, color: "#00e5a0" },
-  ingredientMore: { fontSize: 11, color: "#6b7a99", paddingVertical: 4 },
-  prepTime: { fontSize: 12, color: "#6b7a99" },
-});

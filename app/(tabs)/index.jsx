@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useMemo } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, SafeAreaView, ActivityIndicator, RefreshControl,
+  StyleSheet, SafeAreaView, ActivityIndicator, RefreshControl, Image,
 } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
@@ -56,8 +56,9 @@ export default function Dashboard() {
     header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 24 },
     greeting: { fontSize: 13, color: theme.muted },
     username: { fontSize: 22, fontWeight: "800", color: theme.text },
-    logoutBtn: { backgroundColor: theme.surface, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 },
-    logoutText: { fontSize: 12, color: theme.muted, fontWeight: "600" },
+    profileBtn: { width: 44, height: 44, borderRadius: 22, overflow: "hidden", borderWidth: 2, borderColor: theme.accent },
+    profileImage: { width: "100%", height: "100%" },
+    profileFallback: { width: "100%", height: "100%", backgroundColor: theme.surface, alignItems: "center", justifyContent: "center" },
     alertWarn: { backgroundColor: theme.warning + "22", borderRadius: 8, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: theme.warning + "33" },
     alertText: { color: theme.warning, fontSize: 13 },
     statsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginBottom: 28 },
@@ -88,6 +89,11 @@ export default function Dashboard() {
     if (h < 12) return "Good morning";
     if (h < 17) return "Good afternoon";
     return "Good evening";
+  };
+
+  const getInitial = () => {
+    const source = user?.firstName || user?.username || "";
+    return source.charAt(0).toUpperCase() || "?";
   };
 
   if (!user) {
@@ -126,8 +132,18 @@ export default function Dashboard() {
             <Text style={styles.greeting}>{getGreeting()},</Text>
             <Text style={styles.username}>{user.firstName || user.username} 👋</Text>
           </View>
-          <TouchableOpacity style={styles.logoutBtn} onPress={logout}>
-            <Text style={styles.logoutText}>Sign Out</Text>
+          <TouchableOpacity
+            style={styles.profileBtn}
+            onPress={() => router.push("/profile")}
+            accessibilityLabel="Open profile"
+          >
+            {user.profilePicture ? (
+              <Image source={{ uri: user.profilePicture }} style={styles.profileImage} />
+            ) : (
+              <View style={styles.profileFallback}>
+                <Text style={{ color: theme.accent, fontWeight: "800", fontSize: 16 }}>{getInitial()}</Text>
+              </View>
+            )}
           </TouchableOpacity>
         </View>
 

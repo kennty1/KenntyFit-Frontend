@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Kennyfit",
-    "slug": "kennyfit-app",
+    "name": "Kenntyfit",
+    "slug": "kenntyfit-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./profilephoto/icon.png",
@@ -23,7 +23,7 @@
         "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
         "android.permission.CAMERA"
       ],
-      "package": "com.kennty.kennyfitapp"
+      "package": "com.kennty.kenntyfitapp"
     },
     "web": {
       "favicon": "./profilephoto/favicon.png"
