@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import {
   Modal, View, Text, TouchableOpacity, StyleSheet,
-  Animated, Alert,
+  Animated, Alert, AppState,
 } from "react-native";
 import { hydrationEmitter, HYDRATION_EVENTS } from "../services/hydrationAutoTracker";
 import { useAuth } from "../context/AuthContext";
@@ -12,6 +12,9 @@ export default function WaterDetectionPrompt() {
   const [visible, setVisible] = useState(false);
   const [loading, setLoading] = useState(false);
   const [detectionData, setDetectionData] = useState(null);
+  const [pendingDetection, setPendingDetection] = useState(null);
+  const [appState, setAppState] = useState(AppState.currentState);
+  const [lastPromptAt, setLastPromptAt] = useState(0);
   const [slideAnim] = useState(new Animated.Value(0));
 
   // Calculate estimated amount: 25ml per sip detected
@@ -21,14 +24,18 @@ export default function WaterDetectionPrompt() {
 
   useEffect(() => {
     const handleDetection = (data) => {
-      setDetectionData(data);
-      setVisible(true);
+      const now = Date.now();
+      if (now - lastPromptAt < 300000) return;
 
-      // Auto-animate in
-      Animated.spring(slideAnim, {
-        toValue: 1,
-        useNativeDriver: true,
-      }).start();
+      setPendingDetection(data);
+      if (appState === "active") {
+        setDetectionData(data);
+        setVisible(true);
+        Animated.spring(slideAnim, {
+          toValue: 1,
+          useNativeDriver: true,
+        }).start();
+      }
     };
 
     hydrationEmitter.on(HYDRATION_EVENTS.DETECTED, handleDetection);
@@ -36,12 +43,30 @@ export default function WaterDetectionPrompt() {
     return () => {
       hydrationEmitter.off(HYDRATION_EVENTS.DETECTED, handleDetection);
     };
-  }, [slideAnim]);
+  }, [appState, lastPromptAt, slideAnim]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      setAppState(nextState);
+      if (nextState === "active" && pendingDetection && Date.now() - lastPromptAt >= 300000) {
+        setDetectionData(pendingDetection);
+        setVisible(true);
+        Animated.spring(slideAnim, {
+          toValue: 1,
+          useNativeDriver: true,
+        }).start();
+      }
+    });
+
+    return () => subscription.remove();
+  }, [lastPromptAt, pendingDetection, slideAnim]);
 
   const handleConfirm = async () => {
     if (!user?.id || !detectionData) return;
 
     setLoading(true);
+    setLastPromptAt(Date.now());
+    setPendingDetection(null);
     const estimatedAmount = estimateWaterAmount(detectionData.sipCount);
 
     try {
@@ -59,6 +84,7 @@ export default function WaterDetectionPrompt() {
       });
 
       console.log("[Hydration] ✓ Water intake logged successfully", {
+
         amount: estimatedAmount,
         confidence: detectionData.confidenceScore,
       });
@@ -83,7 +109,7 @@ export default function WaterDetectionPrompt() {
       let troubleshootMsg = `Failed to log water: ${errorMsg}`;
       
       if (error.code === "ECONNREFUSED" || code === "ERR_NETWORK") {
-        troubleshootMsg = `Cannot connect to backend.\n\nMake sure:\n1. Backend is running on http://localhost:8081\n2. Port 8081 is accessible\n3. Firewall allows localhost access`;
+        troubleshootMsg = `Cannot connect to backend.\n\nMake sure:\n1. Backend is running on https://kennty-fit-tracker-backend-production.up.railway.app\n2. Port is accessible\n3. Firewall allows localhost access`;
       } else if (error.code === "ENOTFOUND") {
         troubleshootMsg = `DNS/Network error. Check backend URL and network connection.`;
       } else if (status === 404) {
@@ -111,7 +137,7 @@ export default function WaterDetectionPrompt() {
 
   // Auto-confirm if confidence is very high (85%+) - no user interaction needed
   useEffect(() => {
-    if (visible && detectionData && detectionData.confidenceScore >= 0.85) {
+    if (visible && detectionData && detectionData.confidenceScore >= 0.9) {
       console.log("[Hydration] High confidence (85%+), auto-logging...");
       
       // Auto-confirm after brief animation (500ms)
@@ -124,6 +150,8 @@ export default function WaterDetectionPrompt() {
   }, [visible, detectionData]);
 
   const handleDismiss = () => {
+    setLastPromptAt(Date.now());
+    setPendingDetection(null);
     Animated.timing(slideAnim, {
       toValue: 0,
       duration: 300,
@@ -134,7 +162,7 @@ export default function WaterDetectionPrompt() {
     });
   };
 
-  const isHighConfidence = detectionData?.confidenceScore >= 0.85;
+  const isHighConfidence = detectionData?.confidenceScore >= 0.9;
   const confidencePercent = Math.round((detectionData?.confidenceScore || 0) * 100);
 
   const translateY = slideAnim.interpolate({
@@ -207,7 +235,8 @@ export default function WaterDetectionPrompt() {
           <Text style={styles.footer}>
             {isHighConfidence
               ? "Motion analysis verified drinking. No action needed."
-              : "Powered by advanced motion sensors."}
+              : "Powered by advanced motion sensors."
+            }
           </Text>
         </Animated.View>
       </View>

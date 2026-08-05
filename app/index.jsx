@@ -1,9 +1,10 @@
 import React from "react";
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
-  StyleSheet, SafeAreaView, ActivityIndicator,
+  StyleSheet, ActivityIndicator,
   KeyboardAvoidingView, Platform, Image,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";

@@ -1,38 +1,78 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import {
   View, Text, TouchableOpacity, StyleSheet,
   SafeAreaView, ActivityIndicator,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import { useFocusEffect } from "@react-navigation/native";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
 import API from "../api/axios";
 
 export default function SubscriptionGuard({ children }) {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const { theme } = useTheme();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [checking, setChecking] = useState(true);
   const [active, setActive] = useState(false);
   const [subInfo, setSubInfo] = useState(null);
 
-  useEffect(() => {
-    if (!user?.id) { setChecking(false); return; }
-    API.get(`/subscriptions/user/${user.id}/check`)
-      .then((res) => {
-        setActive(res.data?.active === true);
-        return API.get(`/subscriptions/user/${user.id}`).catch(() => null);
-      })
-      .then((res) => { if (res) setSubInfo(res.data); })
-      .catch(() => setActive(false))
-      .finally(() => setChecking(false));
-  }, [user?.id]);
+  // useFocusEffect fires every time this screen comes into focus —
+  // including when the user returns from the Paystack browser after payment.
+  // Run async logic inside the effect callback and return a cleanup (no Promise).
+  useFocusEffect(
+    useCallback(() => {
+      let isActive = true;
+
+      const run = async () => {
+        if (!user?.id) {
+          if (isActive) setChecking(false);
+          return;
+        }
+        if (isActive) setChecking(true);
+        try {
+          const res = await API.get(`/subscriptions/user/${user.id}/access`);
+          if (!isActive) return;
+          const data = res.data;
+          if (isActive) setActive(data?.hasAccess === true);
+          if (data?.hasAccess) {
+            try {
+              const subRes = await API.get(`/subscriptions/user/${user.id}`);
+              if (isActive) setSubInfo(subRes.data);
+            } catch {
+              if (isActive) setSubInfo({ plan: data.plan, daysRemaining: data.daysRemaining });
+            }
+          } else {
+            if (isActive) setSubInfo(null);
+          }
+        } catch {
+          if (isActive) {
+            setActive(false);
+            setSubInfo(null);
+          }
+        } finally {
+          if (isActive) setChecking(false);
+        }
+      };
+
+      run();
+
+      return () => { isActive = false; };
+    }, [user?.id])
+  );
+
+  const handleSignInDifferentAccount = async () => {
+    try { await logout(); } catch {}
+    router.replace("/login");
+  };
 
   const styles = useMemo(() => StyleSheet.create({
     safe: { flex: 1, backgroundColor: theme.background },
     center: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: theme.background, gap: 12 },
     checkingText: { color: theme.muted, fontSize: 14 },
-    expiryBanner: { backgroundColor: `${theme.warning}1A`, borderBottomWidth: 1, borderBottomColor: theme.warning, padding: 12, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+    expiryBanner: { backgroundColor: `${theme.warning}1A`, borderBottomWidth: 1, borderBottomColor: theme.warning, paddingTop: insets.top + 8, paddingBottom: 12, paddingHorizontal: 12, flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 4, marginHorizontal: 10, borderRadius: 10, marginBottom: 8 },
     expiryText: { fontSize: 13, color: theme.warning, flex: 1 },
     bold: { fontWeight: "700" },
     renewBtn: { backgroundColor: theme.warning, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 5, marginLeft: 10 },
@@ -61,7 +101,7 @@ export default function SubscriptionGuard({ children }) {
     );
   }
 
-  // Expiry warning banner — show above content if expiring soon
+  // Expiry warning banner — shows above content if expiring within 3 days
   if (active && subInfo?.daysRemaining <= 3 && subInfo?.daysRemaining > 0) {
     return (
       <View style={{ flex: 1 }}>
@@ -81,7 +121,7 @@ export default function SubscriptionGuard({ children }) {
 
   if (active) return children;
 
-  // No active subscription
+  // No active subscription — full paywall
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.lockedContainer}>
@@ -90,7 +130,7 @@ export default function SubscriptionGuard({ children }) {
         </View>
         <Text style={styles.lockedTitle}>Subscription Required</Text>
         <Text style={styles.lockedSub}>
-          Start with a free 7-day trial — no debit card required.
+          Start with a free 7-day trial — no credit card required.
         </Text>
 
         <View style={styles.featureCard}>
@@ -104,9 +144,9 @@ export default function SubscriptionGuard({ children }) {
         </View>
 
         <TouchableOpacity style={styles.btnPrimary} onPress={() => router.push("/pricing")}>
-          <Text style={styles.btnPrimaryText}>View Plans & Start Free Trial →</Text>
+          <Text style={styles.btnPrimaryText}>View Plans & Subscribe →</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.btnGhost} onPress={() => router.push("/login")}>
+        <TouchableOpacity style={styles.btnGhost} onPress={handleSignInDifferentAccount}>
           <Text style={styles.btnGhostText}>Sign in to a different account</Text>
         </TouchableOpacity>
       </View>

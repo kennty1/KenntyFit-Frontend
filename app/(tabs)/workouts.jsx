@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   ActivityIndicator,
   Alert,
@@ -15,7 +16,7 @@ import { useTheme } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
 import API from "../../api/axios";
 import WorkoutDemoPlayer from "../../components/WorkoutDemoPlayer";
-import { calculateCaloriesBurned, getDailyStepStats } from "../../utils/stepCounter";
+import { calculateCaloriesBurned, getDailyStepStats, getStepTrackingStatus } from "../../utils/stepCounter";
 import {
   WORKOUT_GOAL_KEYS,
   getRecommendedWorkout,
@@ -38,6 +39,27 @@ const formatTime = (seconds) => {
 };
 
 const formatLabel = (value) => String(value || "").replace(/_/g, " ").trim();
+
+const formatBackendDateTime = (value) => {
+  const date = value ? new Date(value) : new Date();
+  const pad = (num) => String(num).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+};
+
+const buildWorkoutPayload = ({ workoutName, workoutType, routineName, stepCount, durationMinutes, caloriesBurned, difficulty, startedAt, completedAt }) => ({
+  workoutName: workoutName || "Workout",
+  workoutType: workoutType || "BALANCED",
+  routineName: routineName || "Workout",
+  stepCount: Number(stepCount || 0),
+  durationMinutes: Number(durationMinutes || 0),
+  caloriesBurned: Number(caloriesBurned || 0),
+  distance: null,
+  intensityLevel: intensityFromDifficulty(difficulty),
+  deviceWithUser: true,
+  source: "mobile",
+  startedAt: formatBackendDateTime(startedAt || completedAt),
+  endedAt: formatBackendDateTime(completedAt),
+});
 
 const intensityFromDifficulty = (difficulty) => {
   const value = String(difficulty || "").toLowerCase();
@@ -63,6 +85,23 @@ const getApiErrorMessage = (error, fallback = "Could not save workout.") => {
     error?.response?.data?.title ||
     error?.message;
   return serverMessage ? String(serverMessage) : fallback;
+};
+
+const LOCAL_WORKOUTS_KEY = "localWorkouts";
+
+const readLocalWorkouts = async () => {
+  try {
+    const raw = await AsyncStorage.getItem(LOCAL_WORKOUTS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveLocalWorkouts = async (items) => {
+  try {
+    await AsyncStorage.setItem(LOCAL_WORKOUTS_KEY, JSON.stringify(items));
+  } catch {}
 };
 
 export default function Workouts() {
@@ -107,6 +146,21 @@ export default function Workouts() {
     activeRoutine?.calories || 0,
     calculateCaloriesBurned(sessionSteps, Number(user?.weight || 70) || 70)
   );
+  const stepSummaryLabel = dailyStats?.stepTrackingAvailable === false
+    ? "Live steps unavailable"
+    : "Session steps";
+
+  const todayRecordedSeconds = useMemo(() => {
+    return (workouts || []).reduce((total, item) => {
+      if (item?.durationSeconds !== undefined && item?.durationSeconds !== null) {
+        return total + Number(item.durationSeconds || 0);
+      }
+      if (item?.durationMinutes !== undefined && item?.durationMinutes !== null) {
+        return total + Number(item.durationMinutes || 0) * 60;
+      }
+      return total;
+    }, 0);
+  }, [workouts]);
 
   const loadWorkouts = useCallback(async () => {
     if (!user?.id) {
@@ -115,11 +169,25 @@ export default function Workouts() {
     }
 
     try {
-      const res = await API.get(`/workouts/user/${user.id}/date/${todayKey()}`);
-      setWorkouts(Array.isArray(res.data) ? res.data : []);
+      const [serverRes, localWorkouts] = await Promise.all([
+        API.get(`/workouts/user/${user.id}/date/${todayKey()}`).catch(() => ({ data: [] })),
+        readLocalWorkouts(),
+      ]);
+
+      const serverWorkouts = Array.isArray(serverRes?.data) ? serverRes.data : [];
+      const localToday = (localWorkouts || []).filter((item) => item.workoutDate === todayKey());
+      const seenIds = new Set(localToday.map((item) => item.id));
+      const mergedWorkouts = [
+        ...localToday,
+        ...serverWorkouts.filter((item) => !seenIds.has(item.id)),
+      ].sort((a, b) => String(b.completedAt || "").localeCompare(String(a.completedAt || "")));
+
+      setWorkouts(mergedWorkouts);
       setError("");
     } catch {
-      setError("Could not load workouts.");
+      const localWorkouts = await readLocalWorkouts();
+      setWorkouts((localWorkouts || []).filter((item) => item.workoutDate === todayKey()));
+      setError("Saved locally; reconnect to sync.");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -128,8 +196,8 @@ export default function Workouts() {
 
   const loadDailyStats = useCallback(async () => {
     try {
-      const stats = await getDailyStepStats();
-      setDailyStats(stats);
+      const [stats, trackingStatus] = await Promise.all([getDailyStepStats(), getStepTrackingStatus()]);
+      setDailyStats({ ...stats, stepTrackingAvailable: trackingStatus.available });
     } catch {
       // Step tracking can fail on unsupported devices. Keep the last value.
     }
@@ -148,9 +216,9 @@ export default function Workouts() {
     let active = true;
     const syncSteps = async () => {
       try {
-        const stats = await getDailyStepStats();
+        const [stats, trackingStatus] = await Promise.all([getDailyStepStats(), getStepTrackingStatus()]);
         if (active) {
-          setDailyStats(stats);
+          setDailyStats({ ...stats, stepTrackingAvailable: trackingStatus.available });
         }
       } catch {
         // Ignore sensor failures.
@@ -245,35 +313,29 @@ export default function Workouts() {
     setSaving(true);
     try {
       const completedAt = new Date().toISOString();
-      const richPayload = {
-        userId: user.id,
-        workoutType: activeRoutine?.workoutType || "BALANCED",
+      const richPayload = buildWorkoutPayload({
         workoutName: activeRoutine?.name || "Workout",
-        routineId: activeRoutine?.id,
-        fitnessGoal: activePlan.key,
-        fitnessGoalLabel: activePlan.label,
-        videoUrl: activeRoutine?.videoUrl,
-        durationMinutes: sessionMinutes,
-        durationSeconds: elapsedSeconds,
-        stepCount: sessionSteps,
-        caloriesBurned: estimatedCalories,
-        notes: `${activeRoutine?.name || "Workout"} guided session`,
-        intensity: intensityFromDifficulty(activeRoutine?.difficulty),
-        workoutDate: todayKey(),
-        startedAt: sessionStartedAt,
-        completedAt,
-      };
-
-      const fallbackPayload = {
-        userId: user.id,
         workoutType: activeRoutine?.workoutType || "BALANCED",
-        durationMinutes: sessionMinutes,
-        stepCount: sessionSteps,
-        caloriesBurned: estimatedCalories,
-        notes: activeRoutine?.name || "Workout session",
-        intensity: intensityFromDifficulty(activeRoutine?.difficulty),
-        workoutDate: todayKey(),
-      };
+        routineName: activeRoutine?.name || "Workout",
+        stepCount: Number(sessionSteps || 0),
+        durationMinutes: Number(sessionMinutes || 0),
+        caloriesBurned: Number(estimatedCalories || 0),
+        difficulty: activeRoutine?.difficulty,
+        startedAt: sessionStartedAt || completedAt,
+        completedAt,
+      });
+
+      const fallbackPayload = buildWorkoutPayload({
+        workoutName: activeRoutine?.name || "Workout",
+        workoutType: activeRoutine?.workoutType || "BALANCED",
+        routineName: activeRoutine?.name || "Workout",
+        stepCount: Number(sessionSteps || 0),
+        durationMinutes: Number(sessionMinutes || 0),
+        caloriesBurned: Number(estimatedCalories || 0),
+        difficulty: activeRoutine?.difficulty,
+        startedAt: sessionStartedAt || completedAt,
+        completedAt,
+      });
 
       try {
         await API.post(`/workouts/user/${user.id}/auto-track`, richPayload);
@@ -281,7 +343,22 @@ export default function Workouts() {
         try {
           await API.post(`/workouts/user/${user.id}/auto-track`, fallbackPayload);
         } catch (secondError) {
-          throw secondError;
+          const localWorkout = {
+            id: `local-${Date.now()}`,
+            ...richPayload,
+            savedLocally: true,
+            createdAt: completedAt,
+          };
+          const existingLocal = await readLocalWorkouts();
+          await saveLocalWorkouts([localWorkout, ...existingLocal.filter((item) => item.id !== localWorkout.id)]);
+          setWorkouts((prev) => [localWorkout, ...prev.filter((item) => item.id !== localWorkout.id)]);
+
+          setRunning(false);
+          setElapsedSeconds(0);
+          setSessionStartSteps(dailyStats?.steps || 0);
+          setSessionStartedAt(null);
+          Alert.alert("Workout saved locally", "Your workout was saved on this device and will sync when connection is available.");
+          return;
         }
       }
 
@@ -711,7 +788,7 @@ export default function Workouts() {
           <Text style={styles.timerTitle}>Workout timer</Text>
           <Text style={styles.timerValue}>{formatTime(elapsedSeconds)}</Text>
           <Text style={styles.timerSub}>
-            {running ? "Session running" : "Paused"} · {sessionSteps.toLocaleString()} steps this session
+            {running ? "Session running" : "Paused"} · {dailyStats?.stepTrackingAvailable === false ? "Live steps unavailable" : `${sessionSteps.toLocaleString()} steps this session`}
           </Text>
 
           <View style={styles.buttonRow}>
@@ -746,14 +823,14 @@ export default function Workouts() {
           <Text style={styles.sectionTitle}>Session summary</Text>
           <View style={styles.summaryGrid}>
             <View style={styles.summaryCard}>
-              <Text style={styles.summaryValue}>{formatTime(elapsedSeconds)}</Text>
+              <Text style={styles.summaryValue}>{formatTime(todayRecordedSeconds)}</Text>
               <Text style={styles.summaryLabel}>Recorded time</Text>
             </View>
             <View style={styles.summaryCard}>
               <Text style={[styles.summaryValue, { color: "#0099ff" }]}>
                 {sessionSteps.toLocaleString()}
               </Text>
-              <Text style={styles.summaryLabel}>Session steps</Text>
+              <Text style={styles.summaryLabel}>{stepSummaryLabel}</Text>
             </View>
             <View style={styles.summaryCard}>
               <Text style={[styles.summaryValue, { color: "#fbbf24" }]}>
@@ -790,9 +867,6 @@ export default function Workouts() {
                       {formatLabel(item.fitnessGoalLabel || item.fitnessGoal || item.workoutType)}
                     </Text>
                   </View>
-                  <TouchableOpacity onPress={() => deleteWorkout(item.id)} style={styles.deleteBtn}>
-                    <MaterialCommunityIcons name="close-circle-outline" size={18} color="#ff6b6b" />
-                  </TouchableOpacity>
                 </View>
                 <View style={styles.workoutStats}>
                   <View style={styles.workoutStatItem}>

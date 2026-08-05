@@ -3,18 +3,15 @@ import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   SafeAreaView, Switch, Alert, Platform,
 } from "react-native";
-import { useRouter } from "expo-router";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import * as Notifications from "expo-notifications";
-
-// Configure notification handler
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
+import {
+  cancelAllScheduledReminders,
+  cancelReminderNotifications,
+  getNotificationPermissionStatus,
+  requestNotificationPermission,
+  scheduleReminderNotification,
+  sendTestReminderNotification,
+} from "../utils/notificationService";
 
 const REMINDER_TIMES = [
   { id: "breakfast", label: "Breakfast Reminder", time: "07:30", emoji: "🍳" },
@@ -28,51 +25,39 @@ export default function Settings() {
   const [permissionGranted, setPermissionGranted] = useState(false);
   const [remindersEnabled, setRemindersEnabled] = useState({});
   const [checking, setChecking] = useState(true);
-  const router = useRouter();
 
   useEffect(() => {
     checkPermissions();
   }, []);
 
-  const handleBack = () => {
-    if (router.canGoBack()) {
-      router.back();
-    } else {
-      router.replace("/(tabs)");
-    }
-  };
-
   const checkPermissions = async () => {
-    const { status } = await Notifications.getPermissionsAsync();
+    const status = await getNotificationPermissionStatus();
     setPermissionGranted(status === "granted");
     setChecking(false);
   };
 
   const requestPermissions = async () => {
-    const { status } = await Notifications.requestPermissionsAsync();
-    setPermissionGranted(status === "granted");
-    if (status !== "granted") {
+    const granted = await requestNotificationPermission();
+    setPermissionGranted(granted);
+    if (!granted) {
       Alert.alert(
         "Permission Required",
         "Please enable notifications in your device settings to use reminders.",
         [{ text: "OK" }]
       );
     }
+    return granted;
   };
 
   const scheduleReminder = async (id, label, hour, minute) => {
     try {
-      await Notifications.scheduleNotificationAsync({
-        content: {
-          title: `KenntyFit — ${label}`,
-          body: `Time for your ${label.toLowerCase()}! Stay on track.`,
-          sound: true,
-        },
-        trigger: {
-          hour,
-          minute,
-          repeats: true,
-        },
+      await scheduleReminderNotification({
+        id,
+        title: `KenntyFit — ${label}`,
+        body: `Time for your ${label.toLowerCase()}! Stay on track.`,
+        hour,
+        minute,
+        repeats: true,
       });
       Alert.alert("Reminder Set ✅", `${label} scheduled daily.`);
     } catch (e) {
@@ -84,6 +69,7 @@ export default function Settings() {
     if (!permissionGranted) { await requestPermissions(); return; }
     const isEnabled = remindersEnabled[reminder.id];
     if (isEnabled) {
+      await cancelReminderNotifications(reminder.id);
       setRemindersEnabled((p) => ({ ...p, [reminder.id]: false }));
       Alert.alert("Reminder Off", `${reminder.label} turned off.`);
     } else {
@@ -106,13 +92,10 @@ export default function Settings() {
 
   const sendTestNotification = async () => {
     if (!permissionGranted) { await requestPermissions(); return; }
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: "KenntyFit Test 🎉",
-        body: "Notifications are working correctly!",
-        sound: true,
-      },
-      trigger: { seconds: 2 },
+    await sendTestReminderNotification({
+      title: "KenntyFit Test 🎉",
+      body: "Notifications are working correctly!",
+      seconds: 2,
     });
     Alert.alert("Test Sent", "You'll receive a notification in 2 seconds.");
   };
@@ -121,7 +104,7 @@ export default function Settings() {
     Alert.alert("Cancel All Reminders", "This will cancel all scheduled notifications.", [
       { text: "Cancel", style: "cancel" },
       { text: "Confirm", style: "destructive", onPress: async () => {
-        await Notifications.cancelAllScheduledNotificationsAsync();
+        await cancelAllScheduledReminders();
         setRemindersEnabled({});
         Alert.alert("Done", "All reminders cancelled.");
       }},
@@ -180,15 +163,6 @@ export default function Settings() {
         {/* Actions */}
         <Text style={styles.sectionTitle}>Actions</Text>
         <View style={styles.actionsCard}>
-          <TouchableOpacity style={styles.actionRow} onPress={sendTestNotification}>
-            <Text style={styles.actionEmoji}>🔔</Text>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.actionLabel}>Send Test Notification</Text>
-              <Text style={styles.actionSub}>Check if notifications are working</Text>
-            </View>
-            <Text style={styles.actionArrow}>›</Text>
-          </TouchableOpacity>
-          <View style={styles.actionBorder} />
           <TouchableOpacity style={styles.actionRow} onPress={cancelAllReminders}>
             <Text style={styles.actionEmoji}>🗑️</Text>
             <View style={{ flex: 1 }}>
@@ -215,8 +189,6 @@ export default function Settings() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#0a0e1a" },
   container: { padding: 20, paddingBottom: 40 },
-  backBtn: { flexDirection: "row", alignItems: "center", marginBottom: 20, paddingVertical: 8 },
-  backText: { fontSize: 16, fontWeight: "600", color: "#00e5a0", marginLeft: 4 },
   title: { fontSize: 24, fontWeight: "800", color: "#fff", marginBottom: 4 },
   sub: { fontSize: 13, color: "#6b7a99", marginBottom: 20 },
   permCard: { backgroundColor: "#111827", borderRadius: 12, padding: 14, marginBottom: 24, borderWidth: 1 },

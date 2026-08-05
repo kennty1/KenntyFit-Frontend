@@ -28,7 +28,7 @@ export async function checkBackendConnection() {
       duration: `${error.config?.timeout || "unknown"}ms`,
       message: `❌ Cannot reach backend: ${error.message}`,
       troubleshooting: [
-        "1. Verify backend is running on http://localhost:8081",
+        "1. Verify backend is running on https://kennty-fit-tracker-backend-production.up.railway.app",
         "2. Check that backend port 8081 is open",
         "3. Verify your computer's firewall allows localhost access",
         "4. If on Android/iOS emulator, use http://10.0.2.2:8081 instead of localhost",

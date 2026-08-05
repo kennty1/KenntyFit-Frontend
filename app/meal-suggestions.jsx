@@ -9,6 +9,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
 import API from "../api/axios";
+import { getMealsByCountry } from "../utils/nigerianFoods";
 
 const FILTER_TYPES = ["all", "breakfast", "lunch", "dinner", "favorites"];
 const MEAL_ICON_MAP = {
@@ -31,11 +32,6 @@ export default function MealSuggestions() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
 
-  const handleBack = () => {
-    if (router.canGoBack()) router.back();
-    else router.replace("/(tabs)");
-  };
-
   useEffect(() => {
     AsyncStorage.getItem("favoriteMeals").then((saved) => {
       if (saved) setFavorites(JSON.parse(saved));
@@ -46,16 +42,41 @@ export default function MealSuggestions() {
     if (!user?.id) { setLoading(false); return; }
     if (isRefresh) setRefreshing(true); else setLoading(true);
     setError("");
+
+    const country = user?.country || "Nigeria";
+    const healthStatus = user?.healthStatus || "None";
+    const fallbackSet = {
+      breakfast: getMealsByCountry(country, "breakfast", healthStatus),
+      lunch: getMealsByCountry(country, "lunch", healthStatus),
+      dinner: getMealsByCountry(country, "dinner", healthStatus),
+    };
+
+    setSuggestionSet(null);
+
     try {
       const res = await API.get(`/meal-suggestions/user/${user.id}`);
-      setSuggestionSet(res.data || null);
+      const hasRemoteMeals = Boolean(
+        res?.data?.breakfast?.length || res?.data?.lunch?.length || res?.data?.dinner?.length
+      );
+
+      if (hasRemoteMeals) {
+        setSuggestionSet({
+          breakfast: res.data?.breakfast?.length ? res.data.breakfast : [],
+          lunch: res.data?.lunch?.length ? res.data.lunch : [],
+          dinner: res.data?.dinner?.length ? res.data.dinner : [],
+        });
+      } else {
+        setSuggestionSet(fallbackSet);
+        setError("Gemini suggestions were unavailable, so fallback meals are being shown.");
+      }
     } catch (e) {
-      setError("Could not load suggestions right now. Please try again.");
+      setSuggestionSet(fallbackSet);
+      setError("Gemini suggestions are currently unavailable. Showing fallback meals instead.");
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user?.id]);
+  }, [user?.id, user?.country, user?.healthStatus]);
 
   useEffect(() => { fetchSuggestions(); }, [fetchSuggestions]);
 
@@ -93,8 +114,6 @@ export default function MealSuggestions() {
     safe: { flex: 1, backgroundColor: theme.background },
     container: { padding: 20, paddingBottom: 40 },
     center: { flex: 1, alignItems: "center", justifyContent: "center", paddingTop: 60 },
-    backBtn: { flexDirection: "row", alignItems: "center", marginBottom: 16, paddingVertical: 8 },
-    backText: { fontSize: 16, fontWeight: "600", color: theme.accent, marginLeft: 4 },
     titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 },
     titleLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
     title: { fontSize: 24, fontWeight: "800", color: theme.text },
@@ -140,11 +159,6 @@ export default function MealSuggestions() {
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
-        <TouchableOpacity style={styles.backBtn} onPress={handleBack}>
-          <MaterialCommunityIcons name="chevron-left" size={24} color={theme.accent} />
-          <Text style={styles.backText}>Back</Text>
-        </TouchableOpacity>
-
         <View style={styles.titleRow}>
           <View style={styles.titleLeft}>
             <MaterialCommunityIcons name="food-apple-outline" size={24} color={theme.accent} />
@@ -157,7 +171,7 @@ export default function MealSuggestions() {
           </TouchableOpacity>
         </View>
         <Text style={styles.sub}>
-          Personalized for {user?.country || "your country"} · {user?.healthStatus || "None"}
+          Gemini-generated meals for {user?.country || "your country"} · {user?.healthStatus || "None"}
         </Text>
 
         {error ? <View style={styles.alertWarn}><Text style={styles.alertText}>{error}</Text></View> : null}

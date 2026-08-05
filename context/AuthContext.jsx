@@ -27,14 +27,7 @@ const decodeToken = (token) => {
   }
 };
 
-const isTokenExpired = (token) => {
-  const decoded = decodeToken(token);
-  if (!decoded || typeof decoded !== "object") return false;
-  const expValue = decoded.exp;
-  const expSeconds = Number(expValue);
-  if (!Number.isFinite(expSeconds) || expSeconds <= 0) return false;
-  return expSeconds * 1000 < Date.now();
-};
+const isTokenExpired = () => false;
 
 const normalizeUser = (data) => {
   if (data?.user && typeof data.user === "object") {
@@ -87,17 +80,10 @@ export function AuthProvider({ children }) {
         const storedToken = await AsyncStorage.getItem("token");
         const storedUser = await AsyncStorage.getItem("user");
         if (storedToken && storedUser) {
-          if (isTokenExpired(storedToken)) {
-            await AsyncStorage.removeItem("token");
-            await AsyncStorage.removeItem("user");
-            delete API.defaults.headers.common["Authorization"];
-            setToken(null);
-            setUser(null);
-          } else {
-            setToken(storedToken);
-            setUser(JSON.parse(storedUser));
-            API.defaults.headers.common["Authorization"] = `Bearer ${storedToken}`;
-          }
+          const parsedUser = JSON.parse(storedUser);
+          setToken(storedToken);
+          setUser(parsedUser);
+          API.defaults.headers.common["Authorization"] = `Bearer ${storedToken}`;
         }
       } catch (e) {
         console.log("Error restoring token:", e);
@@ -109,22 +95,53 @@ export function AuthProvider({ children }) {
   }, []);
 
   const login = async (username, password) => {
-    const res = await API.post("/auth/login", { username, password });
-    if (res.data?.otpRequired) return res.data;
-    const { token: t } = res.data;
-    const resolvedUser = normalizeUser(res.data) || res.data?.user;
-    if (!t) {
-      throw new Error("Login response did not include a token.");
+    const normalizedUsername = String(username || "").trim();
+    const normalizedPassword = String(password || "").trim();
+
+    if (!normalizedUsername || !normalizedPassword) {
+      throw new Error("Please enter your username/email and password.");
     }
-    if (!resolvedUser) {
-      throw new Error("Login response did not include user details.");
+
+    const loginPayloads = [];
+    const usernameCandidate = normalizedUsername;
+
+    if (normalizedUsername.includes("@")) {
+      loginPayloads.push({ email: usernameCandidate, password: normalizedPassword });
     }
-    await AsyncStorage.setItem("token", t);
-    await AsyncStorage.setItem("user", JSON.stringify(resolvedUser));
-    API.defaults.headers.common["Authorization"] = `Bearer ${t}`;
-    setToken(t);
-    setUser(resolvedUser);
-    return res.data;
+
+    loginPayloads.push({ username: usernameCandidate, password: normalizedPassword });
+    loginPayloads.push({ email: usernameCandidate, password: normalizedPassword });
+
+    let lastError = null;
+
+    for (const payload of loginPayloads) {
+      try {
+        const res = await API.post("/auth/login", payload);
+        if (res.data?.otpRequired) return res.data;
+        const { token: t } = res.data;
+        const resolvedUser = normalizeUser(res.data) || res.data?.user;
+        if (!t) {
+          throw new Error("Login response did not include a token.");
+        }
+        if (!resolvedUser) {
+          throw new Error("Login response did not include user details.");
+        }
+        await AsyncStorage.setItem("token", t);
+        await AsyncStorage.setItem("user", JSON.stringify(resolvedUser));
+        API.defaults.headers.common["Authorization"] = `Bearer ${t}`;
+        setToken(t);
+        setUser(resolvedUser);
+        return res.data;
+      } catch (err) {
+        lastError = err;
+        const status = err?.response?.status;
+        if (status !== 401 && status !== 400) {
+          throw err;
+        }
+      }
+    }
+
+    throw lastError || new Error("Invalid username/email or password.");
   };
 
   const register = async (username, email, password, form) => {

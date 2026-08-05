@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
-  StyleSheet, SafeAreaView, ActivityIndicator,
+  StyleSheet, ActivityIndicator,
   KeyboardAvoidingView, Platform, Image,
+  Modal, FlatList,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useAuth } from "../context/AuthContext";
 import { COUNTRIES } from "../utils/countries";
@@ -28,30 +30,85 @@ const getErrorMessage = (err, fallback) => {
   if (data?.message) return data.message;
   if (data?.error) return data.error;
   if (data?.detail) return data.detail;
-  if (err?.response?.status === 401) return "Invalid username or password.";
+  if (err?.response?.status === 401) return "Invalid username/email or password.";
   if (err?.response?.status === 400) return data?.message || "Check the form values and try again.";
-  if (err?.message === "Network Error") return "Cannot reach the server. Check your connection and backend URL.";
+  if (err?.message === "Network Error") return "Cannot reach the server. Check your connection.";
   if (typeof err?.message === "string" && err.message.trim()) return err.message;
   return fallback;
 };
 
 function SelectField({ label, value, options, onChange }) {
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const shouldShowSearch = options.length > 8;
+  const filteredOptions = options.filter((option) =>
+    String(option).toLowerCase().includes(search.toLowerCase())
+  );
+
+  useEffect(() => {
+    if (!open) setSearch("");
+  }, [open]);
+
   return (
-    <View style={styles.formGroup}>
+    <View style={[styles.formGroup, styles.selectField]}>
       <Text style={styles.label}>{label}</Text>
-      <TouchableOpacity style={styles.input} onPress={() => setOpen(!open)}>
-        <Text style={{ color: "#fff" }}>{value}</Text>
+      <TouchableOpacity style={styles.pickerButton} onPress={() => setOpen(true)}>
+        <Text style={styles.pickerText}>{value || "Select"}</Text>
+        <Text style={styles.pickerArrow}>▾</Text>
       </TouchableOpacity>
-      {open && (
-        <View style={styles.dropdown}>
-          {options.map((o) => (
-            <TouchableOpacity key={o} style={styles.dropdownItem} onPress={() => { onChange(o); setOpen(false); }}>
-              <Text style={{ color: value === o ? "#00e5a0" : "#fff" }}>{o}</Text>
-            </TouchableOpacity>
-          ))}
+
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>{label}</Text>
+              <TouchableOpacity onPress={() => setOpen(false)}>
+                <Text style={styles.closeText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+
+            {shouldShowSearch && (
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search"
+                placeholderTextColor="#4a5568"
+                value={search}
+                onChangeText={setSearch}
+                autoCapitalize="none"
+              />
+            )}
+
+            {filteredOptions.length > 0 ? (
+              <FlatList
+                data={filteredOptions}
+                keyExtractor={(item) => String(item)}
+                style={styles.optionList}
+                contentContainerStyle={styles.optionListContent}
+                keyboardShouldPersistTaps="handled"
+                renderItem={({ item }) => {
+                  const selected = value === item;
+                  return (
+                    <TouchableOpacity
+                      style={[styles.optionItem, selected && styles.optionItemSelected]}
+                      onPress={() => {
+                        onChange(item);
+                        setOpen(false);
+                      }}
+                    >
+                      <Text style={[styles.optionText, selected && styles.optionTextSelected]}>{item}</Text>
+                    </TouchableOpacity>
+                  );
+                }}
+              />
+            ) : (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyText}>No matches found</Text>
+              </View>
+            )}
+          </View>
         </View>
-      )}
+      </Modal>
     </View>
   );
 }
@@ -140,7 +197,7 @@ export default function Login() {
             />
             <Text style={styles.appName}>KenntyFit</Text>
             <Text style={styles.subtitle}>
-              {mode === "login" ? "Welcome back. Sign in to continue."
+              {mode === "login" ? "Welcome back. Sign in with your username or email to continue."
                 : mode === "register" ? "Create your account to get started."
                 : mode === "forgot" ? "Request a password reset email."
                 : "Use your reset token to set a new password."}
@@ -175,7 +232,19 @@ export default function Login() {
                    </View>
                   <View style={[styles.formGroup, { flex: 1 }]}>
                     <Text style={styles.label}>Password</Text>
-                    <TextInput style={styles.input} placeholderTextColor="#4a5568" value={form.password} onChangeText={set("password")} secureTextEntry/>
+                    <View style={styles.passwordRow}>
+                      <TextInput
+                        style={[styles.input, styles.passwordInput]}
+                        placeholder="••••••••"
+                        placeholderTextColor="#4a5568"
+                        value={form.password}
+                        onChangeText={set("password")}
+                        secureTextEntry={!showPassword}
+                      />
+                      <TouchableOpacity style={styles.eyeBtn} onPress={() => setShowPassword(!showPassword)}>
+                        <Text style={styles.eyeIcon}>{showPassword ? "🙈" : "👁️"}</Text>
+                      </TouchableOpacity>
+                    </View> 
                   </View>
                 
                 <View style={styles.row}>
@@ -183,7 +252,10 @@ export default function Login() {
                     <Text style={styles.label}>Age</Text>
                     <TextInput style={styles.input} keyboardType="numeric" value={form.age} onChangeText={set("age")} placeholderTextColor="#4a5568" />
                   </View>
-                  <SelectField label="Gender" value={form.gender} options={GENDERS} onChange={set("gender")} />
+                  <View style={[styles.formGroup, { flex: 1 }]}> 
+                    <Text style={styles.label}>Gender</Text>
+                    <SelectField value={form.gender} options={GENDERS} onChange={set("gender")} />
+                  </View>
                 </View>
                 <View style={styles.row}>
                   <View style={[styles.formGroup, { flex: 1 }]}>
@@ -302,15 +374,74 @@ const styles = StyleSheet.create({
   alertSuccess: { backgroundColor: "rgba(0,229,160,0.1)", borderRadius: 8, padding: 12, marginBottom: 14, borderWidth: 1, borderColor: "rgba(0,229,160,0.3)" },
   alertText: { color: "#fff", fontSize: 13 },
   card: { backgroundColor: "#111827", borderRadius: 16, padding: 20, borderWidth: 1, borderColor: "#1e2535" },
-  row: { flexDirection: "row", gap: 12 },
+  row: { flexDirection: "row", gap: 12, alignItems: "flex-start" },
   formGroup: { marginBottom: 14 },
+  selectField: { flex: 1 },
   label: { fontSize: 12, color: "#6b7a99", marginBottom: 6, fontWeight: "600", textTransform: "uppercase" },
   input: { backgroundColor: "#0d1526", borderWidth: 1, borderColor: "#1e2535", borderRadius: 8, padding: 12, color: "#fff", fontSize: 14 },
   passwordRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  passwordInput: { flex: 1 },
   eyeBtn: { padding: 12, backgroundColor: "#0d1526", borderRadius: 8, borderWidth: 1, borderColor: "#1e2535" },
+  eyeIcon: { color: "#6b7a99", fontSize: 18 },
   hint: { fontSize: 11, color: "#6b7a99", marginTop: 6 },
-  dropdown: { backgroundColor: "#0d1526", borderRadius: 8, borderWidth: 1, borderColor: "#1e2535", marginTop: 4 },
-  dropdownItem: { padding: 12, borderBottomWidth: 1, borderBottomColor: "#1e2535" },
+  pickerButton: {
+    backgroundColor: "#0d1526",
+    borderWidth: 1,
+    borderColor: "#1e2535",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  pickerText: { color: "#fff", fontSize: 14, flex: 1 },
+  pickerArrow: { color: "#6b7a99", fontSize: 16, marginLeft: 8 },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(3, 8, 20, 0.82)",
+    justifyContent: "center",
+    padding: 16,
+  },
+  modalCard: {
+    maxHeight: "80%",
+    backgroundColor: "#111827",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#1e2535",
+    overflow: "hidden",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#1e2535",
+  },
+  modalTitle: { color: "#fff", fontSize: 16, fontWeight: "700" },
+  closeText: { color: "#00e5a0", fontSize: 13, fontWeight: "600" },
+  searchInput: {
+    marginHorizontal: 12,
+    marginTop: 12,
+    marginBottom: 8,
+    backgroundColor: "#0d1526",
+    borderWidth: 1,
+    borderColor: "#1e2535",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: "#fff",
+  },
+  optionList: { maxHeight: 320 },
+  optionListContent: { paddingBottom: 8 },
+  optionItem: { paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#1e2535" },
+  optionItemSelected: { backgroundColor: "rgba(0,229,160,0.12)" },
+  optionText: { color: "#fff", fontSize: 14 },
+  optionTextSelected: { color: "#00e5a0", fontWeight: "600" },
+  emptyState: { padding: 20, alignItems: "center" },
+  emptyText: { color: "#6b7a99", fontSize: 13 },
   btnPrimary: { backgroundColor: "#00e5a0", borderRadius: 10, padding: 14, alignItems: "center", marginTop: 8 },
   btnPrimaryText: { fontSize: 15, fontWeight: "700", color: "#0a0e1a" },
   btnGhost: { borderRadius: 10, padding: 12, alignItems: "center", borderWidth: 1, borderColor: "#1e2535", marginTop: 10 },

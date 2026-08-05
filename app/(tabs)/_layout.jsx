@@ -5,6 +5,7 @@ import SubscriptionGuard from "../../components/SubscriptionGuard";
 import { StyleSheet } from "react-native";
 import { useTheme } from "../../context/ThemeContext";
 import { useMemo } from "react";
+import { getSharedScreenOptions } from "../../components/NavigationHeader";
 
 const TAB_ICON = {
   index: { name: "home-outline" },
@@ -33,7 +34,7 @@ function Tabs_() {
     <>
       <Tabs
         screenOptions={({ route }) => ({
-          headerShown: false,
+          ...getSharedScreenOptions(theme),
           tabBarActiveTintColor: theme.accent,
           tabBarInactiveTintColor: theme.muted,
           tabBarStyle: styles.tabBar,

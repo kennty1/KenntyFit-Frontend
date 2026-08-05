@@ -96,7 +96,30 @@ export default function Profile() {
     try {
       const [pRes, sRes] = await Promise.allSettled([
         API.get(`/users/${user.id}`),
-        API.get(`/subscriptions/user/${user.id}`),
+        (async () => {
+          try {
+            const checkRes = await API.get(`/subscriptions/user/${user.id}/check`);
+            const normalizedCheck = checkRes?.data;
+            const hasAccess = normalizedCheck?.active === true || normalizedCheck?.isActive === true || normalizedCheck?.hasAccess === true;
+
+            if (!hasAccess) {
+              return null;
+            }
+
+            try {
+              const accessRes = await API.get(`/subscriptions/user/${user.id}/access`);
+              return accessRes.data;
+            } catch (accessError) {
+              const status = accessError?.response?.status;
+              if (status === 400 || status === 404) return normalizedCheck;
+              throw accessError;
+            }
+          } catch (error) {
+            const status = error?.response?.status;
+            if (status === 400 || status === 404) return null;
+            throw error;
+          }
+        })(),
       ]);
       if (pRes.status === "fulfilled") {
         const nextProfile = mergeProfilePicture(pRes.value.data, pRes.value.data);
@@ -107,7 +130,7 @@ export default function Profile() {
         setProfile(fallbackProfile);
         setForm(fallbackProfile);
       }
-      if (sRes.status === "fulfilled") setSub(sRes.value.data);
+      if (sRes.status === "fulfilled") setSub(sRes.value);
     } catch {
       const fallbackProfile = mergeProfilePicture(user, user);
       setProfile(fallbackProfile);
@@ -221,11 +244,6 @@ export default function Profile() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={theme.accent} />}
         showsVerticalScrollIndicator={false}
       >
-        {/* Back button when opened from Settings */}
-        <TouchableOpacity style={styles.backBtn} onPress={() => { if (router.canGoBack()) router.back(); else router.replace("/(tabs)/settings"); }}>
-          <MaterialCommunityIcons name="chevron-left" size={22} color={theme.accent} />
-          <Text style={[styles.backText, { color: theme.accent }]}>{"Back"}</Text>
-        </TouchableOpacity>
         {/* Header */}
         <View style={styles.profileHeader}>
           <TouchableOpacity onPress={pickImage} style={styles.avatarWrap}>

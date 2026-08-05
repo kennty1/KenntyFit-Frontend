@@ -89,7 +89,7 @@ const getBaseUrl = () => {
     return guessedIosUrl;
   }
 
-  const defaultUrl = "http://localhost:8081";
+  const defaultUrl = "https://kennty-fit-tracker-backend-production.up.railway.app";
   console.log(`[API] No configured URL found; defaulting to ${defaultUrl}`);
   return defaultUrl;
 };
@@ -102,7 +102,7 @@ const API_BASE_URL = rawBaseUrl.replace(/\/$/, "").endsWith("/api")
 console.log(`[Init] Platform: ${Platform.OS}, API Base: ${API_BASE_URL}`);
 
 const API = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: 'https://kennty-fit-tracker-backend-production.up.railway.app/api',
   timeout: 60000, // 60 seconds for slower networks
   headers: {
     "Content-Type": "application/json",
@@ -166,16 +166,19 @@ API.interceptors.response.use(
       // Ignore
     }
     
-    // Enhanced error logging for debugging
-    console.error("API Error:", {
-      status: status,
-      url: url,
-      data: error.response?.data,
-      message: error.message,
-      code: error.code,
-      authHeader: hasAuth ? "Yes" : "NO (Missing)",
-      tokenExpired: isExpired ? "YES (Re-login required)" : "No",
-    });
+    const isTrialAlreadyUsedError = status === 400 && String(url || "").includes("/subscriptions/trial/") && /already used your free trial/i.test(error.response?.data?.message || "");
+
+    if (!isTrialAlreadyUsedError) {
+      console.error("API Error:", {
+        status: status,
+        url: url,
+        data: error.response?.data,
+        message: error.message,
+        code: error.code,
+        authHeader: hasAuth ? "Yes" : "NO (Missing)",
+        tokenExpired: isExpired ? "YES (Re-login required)" : "No",
+      });
+    }
     
     // Specific guidance for 403 Forbidden
     if (status === 403) {

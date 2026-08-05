@@ -4,6 +4,7 @@
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Pedometer } from "expo-sensors";
+import { cancelStepSummaryNotifications, scheduleStepSummaryNotification } from "./notificationService";
 
 // ─── Storage helpers ───────────────────────────────────────────────────────────
 
@@ -35,9 +36,24 @@ export const syncStepTracking = async () => {
     stopStepTracking();
     return;
   }
-  if (_pedometerSubscription || _simulationInterval) return;
+
+  if (_pedometerSubscription) {
+    await syncPedometerBaseline();
+    await publishStepSummaryNotification(true);
+    return;
+  }
+
   await initializeStepTracking();
   await startStepTracking();
+};
+
+export const getStepTrackingStatus = async () => {
+  const enabled = await getStepTrackingEnabled();
+  const available = await Pedometer.isAvailableAsync().catch(() => false);
+  return {
+    enabled,
+    available: enabled && available,
+  };
 };
 
 // ─── Date helpers ──────────────────────────────────────────────────────────────
@@ -72,42 +88,103 @@ const getMonthDates = () => {
 let _dailySteps = 0;
 let _pedometerSubscription = null;
 let _simulationInterval = null;
-let _watchBaseSteps = 0;
+let _lastObservedStepCount = null;
+let _trackingInitialized = false;
+let _lastSummaryNotificationAt = 0;
+let _hasSeenLiveStepUpdate = false;
 
 // ─── Init ──────────────────────────────────────────────────────────────────────
 
 export const initializeStepTracking = async () => {
   const stored = await storageGet(`steps_${todayKey()}`, "0");
-  _dailySteps = parseInt(stored);
-  _watchBaseSteps = _dailySteps;
+  const parsed = Number.parseInt(stored, 10);
+  _dailySteps = Number.isFinite(parsed) ? parsed : 0;
+  _lastObservedStepCount = null;
+  _hasSeenLiveStepUpdate = false;
+  _trackingInitialized = true;
 };
 
 // ─── Real pedometer (physical device) ─────────────────────────────────────────
 
-const startPedometer = async () => {
-  const { granted } = await Pedometer.requestPermissionsAsync();
-  if (!granted) return false;
+const syncPedometerBaseline = async () => {
+  if (!_trackingInitialized) {
+    await initializeStepTracking();
+  }
 
-  // Get steps since midnight for today's baseline
   const start = new Date();
   start.setHours(0, 0, 0, 0);
   const end = new Date();
 
-  _watchBaseSteps = _dailySteps;
   try {
+    const storedCount = Number.parseInt(await storageGet(`steps_${todayKey()}`, "0"), 10);
+    const storedSteps = Number.isFinite(storedCount) ? storedCount : 0;
     const result = await Pedometer.getStepCountAsync(start, end);
+
     if (result && Number.isFinite(result.steps)) {
-      _dailySteps = result.steps;
-      _watchBaseSteps = _dailySteps;
+      const currentCount = Number.parseInt(result.steps, 10);
+      if (Number.isFinite(currentCount)) {
+        _dailySteps = Math.max(storedSteps, currentCount);
+        _lastObservedStepCount = currentCount;
+        _hasSeenLiveStepUpdate = _dailySteps > 0;
+      }
+    } else {
+      _dailySteps = storedSteps;
     }
+
     await storageSet(`steps_${todayKey()}`, _dailySteps);
-  } catch {}
+  } catch (error) {
+    console.warn("Unable to sync pedometer baseline", error);
+  }
+};
+
+const publishStepSummaryNotification = async (force = false) => {
+  const now = Date.now();
+  if (!force && now - _lastSummaryNotificationAt < 60 * 60 * 1000) return;
+  _lastSummaryNotificationAt = now;
+
+  const steps = Math.max(_dailySteps, 0);
+  if (steps <= 0) return;
+
+  const calories = calculateCaloriesBurned(steps);
+  await scheduleStepSummaryNotification({ steps, calories, intervalSeconds: 60 * 60 * 2 });
+};
+
+const startPedometer = async () => {
+  if (_pedometerSubscription) {
+    await syncPedometerBaseline();
+    return true;
+  }
+
+  const { granted } = await Pedometer.requestPermissionsAsync();
+  if (!granted) return false;
+
+  await syncPedometerBaseline();
 
   _pedometerSubscription = Pedometer.watchStepCount((result) => {
-    _dailySteps = _watchBaseSteps + (result?.steps || 0);
-    storageSet(`steps_${todayKey()}`, _dailySteps);
+    const incomingCount = Number.isFinite(result?.steps) ? Number(result.steps) : null;
+    if (!Number.isFinite(incomingCount)) return;
+
+    if (_lastObservedStepCount === null) {
+      _lastObservedStepCount = incomingCount;
+      return;
+    }
+
+    if (incomingCount < _lastObservedStepCount) {
+      _lastObservedStepCount = incomingCount;
+      return;
+    }
+
+    const delta = incomingCount - _lastObservedStepCount;
+    if (delta > 0) {
+      _hasSeenLiveStepUpdate = true;
+      _dailySteps += delta;
+      _lastObservedStepCount = incomingCount;
+      storageSet(`steps_${todayKey()}`, _dailySteps);
+      void publishStepSummaryNotification(false);
+    }
   });
 
+  await publishStepSummaryNotification(true);
   return true;
 };
 
@@ -125,13 +202,11 @@ export const startStepTracking = async () => {
     return null; // subscription managed internally
   }
 
-  // Fallback: simulate steps for emulator / web
-  console.log("📊 Step tracking started (simulated)");
-  _simulationInterval = setInterval(() => {
-    if (Math.random() > 0.95) recordStep();
-  }, 1000);
+  await publishStepSummaryNotification(true);
 
-  return _simulationInterval;
+  // Avoid inventing steps on emulators or unsupported devices.
+  console.log("📊 Live step tracking is unavailable on this device; using stored values only.");
+  return null;
 };
 
 // ─── Stop tracking ─────────────────────────────────────────────────────────────
@@ -146,6 +221,9 @@ export const stopStepTracking = (intervalId) => {
     _simulationInterval = null;
   }
   if (intervalId) clearInterval(intervalId);
+  _lastObservedStepCount = null;
+  _hasSeenLiveStepUpdate = false;
+  void cancelStepSummaryNotifications();
 };
 
 // ─── Record / add steps ────────────────────────────────────────────────────────

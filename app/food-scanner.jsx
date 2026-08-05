@@ -4,7 +4,6 @@ import {
   SafeAreaView, ActivityIndicator, Image, Alert, RefreshControl,
 } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system";
 import { useAuth } from "../context/AuthContext";
@@ -19,7 +18,7 @@ const HEALTH = {
 
 export default function FoodScanner() {
   const { user } = useAuth();
-  const router = useRouter();
+  const { theme } = useTheme();
   const [scanning, setScanning] = useState(false);
   const [result, setResult] = useState(null);
   const [preview, setPreview] = useState(null);
@@ -27,14 +26,6 @@ export default function FoodScanner() {
   const [history, setHistory] = useState([]);
   const [activeTab, setActiveTab] = useState("scan");
   const [loadHist, setLoadHist] = useState(false);
-
-  const handleBack = () => {
-    if (router.canGoBack()) {
-      router.back();
-    } else {
-      router.replace("/(tabs)");
-    }
-  };
 
   const analyzeImage = async (uri) => {
     if (!user?.id) { setError("User session not ready. Try again."); return; }
@@ -105,28 +96,27 @@ export default function FoodScanner() {
   const h = result ? (HEALTH[result.healthRating] || HEALTH.MODERATE) : null;
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
-        <TouchableOpacity style={styles.backBtn} onPress={handleBack}>
-          <MaterialCommunityIcons name="chevron-left" size={24} color="#00e5a0" />
-          <Text style={styles.backText}>Back</Text>
-        </TouchableOpacity>
-
+    <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }] }>
+      <ScrollView contentContainerStyle={[styles.container, { backgroundColor: theme.background }]} showsVerticalScrollIndicator={false}>
         <View style={styles.titleRow}>
-          <MaterialCommunityIcons name="barcode-scan" size={24} color="#00e5a0" />
-          <Text style={styles.title}>Food Scanner</Text>
+          <MaterialCommunityIcons name="barcode-scan" size={24} color={theme.accent} />
+          <Text style={[styles.title, { color: theme.text }]}>Food Scanner</Text>
         </View>
-        <Text style={styles.sub}>AI detects calories, macros & health rating instantly</Text>
+        <Text style={[styles.sub, { color: theme.muted }]}>AI detects calories, macros & health rating instantly</Text>
 
         {/* Tab switcher */}
         <View style={styles.tabRow}>
           {[{ key: "scan", label: "Scan Food" }, { key: "history", label: "Scan History" }].map((t) => (
             <TouchableOpacity
               key={t.key}
-              style={[styles.tabBtn, activeTab === t.key && styles.tabBtnActive]}
+              style={[
+                styles.tabBtn,
+                { borderColor: theme.border, backgroundColor: theme.surface },
+                activeTab === t.key && { backgroundColor: theme.accent, borderColor: theme.accent },
+              ]}
               onPress={() => t.key === "history" ? loadHistory() : setActiveTab("scan")}
             >
-              <Text style={[styles.tabText, activeTab === t.key && styles.tabTextActive]}>{t.label}</Text>
+              <Text style={[styles.tabText, { color: activeTab === t.key ? theme.accentText : theme.muted }]}>{t.label}</Text>
             </TouchableOpacity>
           ))}
         </View>
@@ -134,29 +124,29 @@ export default function FoodScanner() {
         {activeTab === "scan" && (
           <>
             {/* Upload area */}
-            <View style={styles.uploadCard}>
+            <View style={[styles.uploadCard, { backgroundColor: theme.surface, borderColor: theme.border }] }>
               {preview ? (
                 <Image source={{ uri: preview }} style={styles.previewImage} resizeMode="cover" />
               ) : (
                 <View style={styles.uploadPlaceholder}>
                   <View style={styles.uploadIconWrap}>
-                    <MaterialCommunityIcons name="camera-plus-outline" size={32} color="#00e5a0" />
+                    <MaterialCommunityIcons name="camera-plus-outline" size={32} color={theme.accent} />
                   </View>
-                  <Text style={styles.uploadTitle}>Take or upload a food photo</Text>
-                  <Text style={styles.uploadSub}>AI will detect food and calculate nutrition</Text>
+                  <Text style={[styles.uploadTitle, { color: theme.text }]}>Take or upload a food photo</Text>
+                  <Text style={[styles.uploadSub, { color: theme.muted }]}>AI will detect food and calculate nutrition</Text>
                 </View>
               )}
               <View style={styles.uploadBtns}>
-                <TouchableOpacity style={styles.uploadBtn} onPress={takePhoto} disabled={scanning}>
+                <TouchableOpacity style={[styles.uploadBtn, { backgroundColor: theme.accent }]} onPress={takePhoto} disabled={scanning}>
                   <View style={styles.uploadBtnRow}>
-                    <MaterialCommunityIcons name="camera-outline" size={16} color="#0a0e1a" />
-                    <Text style={styles.uploadBtnText}>Camera</Text>
+                    <MaterialCommunityIcons name="camera-outline" size={16} color={theme.accentText} />
+                    <Text style={[styles.uploadBtnText, { color: theme.accentText }]}>Camera</Text>
                   </View>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.uploadBtn, styles.uploadBtnSecondary]} onPress={pickFromLibrary} disabled={scanning}>
+                <TouchableOpacity style={[styles.uploadBtn, styles.uploadBtnSecondary, { borderColor: theme.accent }]} onPress={pickFromLibrary} disabled={scanning}>
                   <View style={styles.uploadBtnRow}>
-                    <MaterialCommunityIcons name="image-multiple-outline" size={16} color="#00e5a0" />
-                    <Text style={[styles.uploadBtnText, { color: "#00e5a0" }]}>Gallery</Text>
+                    <MaterialCommunityIcons name="image-multiple-outline" size={16} color={theme.accent} />
+                    <Text style={[styles.uploadBtnText, { color: theme.accent }]}>Gallery</Text>
                   </View>
                 </TouchableOpacity>
               </View>
@@ -171,22 +161,22 @@ export default function FoodScanner() {
 
             {/* Scanning indicator */}
             {scanning && (
-              <View style={styles.scanningCard}>
-                <MaterialCommunityIcons name="robot-outline" size={36} color="#00e5a0" style={styles.scanningIcon} />
-                <Text style={styles.scanningTitle}>Analyzing with Google Gemini AI...</Text>
-                <Text style={styles.scanningSub}>Detecting food and calculating nutrients</Text>
-                <ActivityIndicator size="large" color="#00e5a0" style={{ marginTop: 12 }} />
+              <View style={[styles.scanningCard, { backgroundColor: theme.surface, borderColor: theme.border }] }>
+                <MaterialCommunityIcons name="robot-outline" size={36} color={theme.accent} style={styles.scanningIcon} />
+                <Text style={[styles.scanningTitle, { color: theme.text }]}>Analyzing with Google Gemini AI...</Text>
+                <Text style={[styles.scanningSub, { color: theme.muted }]}>Detecting food and calculating nutrients</Text>
+                <ActivityIndicator size="large" color={theme.accent} style={{ marginTop: 12 }} />
               </View>
             )}
 
             {/* How it works */}
             {!scanning && !result && (
-              <View style={styles.howCard}>
-                <Text style={styles.howTitle}>HOW IT WORKS</Text>
+              <View style={[styles.howCard, { backgroundColor: theme.surface, borderColor: theme.border }] }>
+                <Text style={[styles.howTitle, { color: theme.muted }]}>HOW IT WORKS</Text>
                 {[["camera-outline", "Upload or take a food photo"], ["robot-outline", "Gemini AI identifies the food"], ["chart-box-outline", "Get calories, macros & health rating"], ["lightbulb-outline", "Use the result as meal guidance"]].map(([icon, text]) => (
                   <View key={text} style={styles.howRow}>
-                    <MaterialCommunityIcons name={icon} size={18} color="#00e5a0" style={styles.howIcon} />
-                    <Text style={styles.howText}>{text}</Text>
+                    <MaterialCommunityIcons name={icon} size={18} color={theme.accent} style={styles.howIcon} />
+                    <Text style={[styles.howText, { color: theme.muted }]}>{text}</Text>
                   </View>
                 ))}
               </View>
@@ -194,18 +184,18 @@ export default function FoodScanner() {
 
             {/* Result card */}
             {result && !scanning && (
-              <View style={styles.resultCard}>
+              <View style={[styles.resultCard, { backgroundColor: theme.surface, borderColor: theme.border }] }>
                 {/* Header */}
-                <View style={styles.resultHeader}>
+                <View style={[styles.resultHeader, { borderBottomColor: theme.border }] }>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.resultFoodName}>{result.foodName}</Text>
-                    <Text style={styles.resultServing}>{result.servingSize}{result.cookingMethod ? ` · ${result.cookingMethod}` : ""}</Text>
+                    <Text style={[styles.resultFoodName, { color: theme.text }]}>{result.foodName}</Text>
+                    <Text style={[styles.resultServing, { color: theme.muted }]}>{result.servingSize}{result.cookingMethod ? ` · ${result.cookingMethod}` : ""}</Text>
                     {result.healthScore && (
                       <View style={styles.scoreRow}>
-                        <View style={styles.scoreBarBg}>
+                        <View style={[styles.scoreBarBg, { backgroundColor: theme.border }] }>
                           <View style={[styles.scoreBarFill, { width: `${result.healthScore}%`, backgroundColor: h?.color }]} />
                         </View>
-                        <Text style={styles.scoreText}>Score: {result.healthScore}/100</Text>
+                        <Text style={[styles.scoreText, { color: theme.muted }]}>Score: {result.healthScore}/100</Text>
                       </View>
                     )}
                   </View>
@@ -215,7 +205,7 @@ export default function FoodScanner() {
                 </View>
 
                 {/* Macros */}
-                <View style={styles.macroGrid}>
+                <View style={[styles.macroGrid, { borderBottomColor: theme.border }] }>
                   {[
                     { l: "Calories", v: result.calories, c: "#ff6b6b" },
                     { l: "Protein", v: `${result.protein?.toFixed(1)}g`, c: "#0099ff" },
@@ -225,47 +215,47 @@ export default function FoodScanner() {
                   ].map((m) => (
                     <View key={m.l} style={styles.macroBox}>
                       <Text style={[styles.macroValue, { color: m.c }]}>{m.v}</Text>
-                      <Text style={styles.macroLabel}>{m.l}</Text>
+                      <Text style={[styles.macroLabel, { color: theme.muted }]}>{m.l}</Text>
                     </View>
                   ))}
                 </View>
 
                 {/* Sugar & Sodium */}
                 {(result.sugar || result.sodium) && (
-                  <View style={styles.extraRow}>
-                    {result.sugar && <View style={styles.extraBox}><Text style={styles.extraLabel}>Sugar</Text><Text style={styles.extraValue}>{result.sugar?.toFixed(1)}g</Text></View>}
-                    {result.sodium && <View style={styles.extraBox}><Text style={styles.extraLabel}>Sodium</Text><Text style={styles.extraValue}>{result.sodium?.toFixed(0)}mg</Text></View>}
+                  <View style={[styles.extraRow, { borderBottomColor: theme.border }] }>
+                    {result.sugar && <View style={styles.extraBox}><Text style={[styles.extraLabel, { color: theme.muted }]}>Sugar</Text><Text style={[styles.extraValue, { color: theme.text }]}>{result.sugar?.toFixed(1)}g</Text></View>}
+                    {result.sodium && <View style={styles.extraBox}><Text style={[styles.extraLabel, { color: theme.muted }]}>Sodium</Text><Text style={[styles.extraValue, { color: theme.text }]}>{result.sodium?.toFixed(0)}mg</Text></View>}
                   </View>
                 )}
 
                 {result.allergens && result.allergens !== "None" && (
-                  <View style={styles.allergenBox}>
+                  <View style={[styles.allergenBox, { borderBottomColor: theme.border }] }>
                     <View style={styles.alertInlineRow}>
                       <MaterialCommunityIcons name="alert-outline" size={14} color="#ff6b6b" />
                       <Text style={styles.allergenText}>
-                        Allergens: <Text style={{ color: "#6b7a99" }}>{result.allergens}</Text>
+                        Allergens: <Text style={{ color: theme.muted }}>{result.allergens}</Text>
                       </Text>
                     </View>
                   </View>
                 )}
 
                 {result.healthExplanation && (
-                  <View style={styles.infoBox}>
-                    <Text style={styles.infoText}><Text style={{ color: "#fff", fontWeight: "700" }}>Assessment: </Text>{result.healthExplanation}</Text>
+                  <View style={[styles.infoBox, { borderBottomColor: theme.border }] }>
+                    <Text style={[styles.infoText, { color: theme.muted }]}><Text style={{ color: theme.text, fontWeight: "700" }}>Assessment: </Text>{result.healthExplanation}</Text>
                   </View>
                 )}
 
                 {result.recommendation && (
-                  <View style={styles.infoBox}>
-                    <Text style={styles.infoText}>
-                      <Text style={{ color: "#fff", fontWeight: "700" }}>Tip: </Text>
+                  <View style={[styles.infoBox, { borderBottomColor: theme.border }] }>
+                    <Text style={[styles.infoText, { color: theme.muted }] }>
+                      <Text style={{ color: theme.text, fontWeight: "700" }}>Tip: </Text>
                       {result.recommendation}
                     </Text>
                   </View>
                 )}
 
-                <TouchableOpacity style={styles.btnPrimary} onPress={() => { setResult(null); setPreview(null); }}>
-                  <Text style={styles.btnPrimaryText}>Scan Again</Text>
+                <TouchableOpacity style={[styles.btnPrimary, { backgroundColor: theme.accent }]} onPress={() => { setResult(null); setPreview(null); }}>
+                  <Text style={[styles.btnPrimaryText, { color: theme.accentText }]}>Scan Again</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -274,26 +264,26 @@ export default function FoodScanner() {
 
         {/* History tab */}
         {activeTab === "history" && (
-          <View style={styles.historyCard}>
+          <View style={[styles.historyCard, { backgroundColor: theme.surface, borderColor: theme.border }] }>
             {loadHist ? (
               <ActivityIndicator size="large" color="#00e5a0" style={{ padding: 32 }} />
             ) : history.length === 0 ? (
               <View style={styles.emptyBox}>
-                <MaterialCommunityIcons name="barcode-scan" size={36} color="#00e5a0" style={styles.emptyIcon} />
-                <Text style={styles.emptyText}>No scans yet. Scan your first food!</Text>
+                <MaterialCommunityIcons name="barcode-scan" size={36} color={theme.accent} style={styles.emptyIcon} />
+                <Text style={[styles.emptyText, { color: theme.muted }]}>No scans yet. Scan your first food!</Text>
               </View>
             ) : (
               history.map((s) => {
                 const hh = HEALTH[s.healthRating] || HEALTH.MODERATE;
                 return (
-                  <View key={s.id} style={styles.historyRow}>
+                  <View key={s.id} style={[styles.historyRow, { borderBottomColor: theme.border }] }>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.historyName}>{s.foodName}</Text>
-                      <Text style={styles.historySub}>{s.servingSize} · {new Date(s.scannedAt).toLocaleDateString()}</Text>
+                      <Text style={[styles.historyName, { color: theme.text }]}>{s.foodName}</Text>
+                      <Text style={[styles.historySub, { color: theme.muted }]}>{s.servingSize} · {new Date(s.scannedAt).toLocaleDateString()}</Text>
                       <View style={styles.historyMacros}>
-                        <Text style={styles.historyMacroText}>🔥 {s.calories} kcal</Text>
-                        <Text style={styles.historyMacroText}>🥩 {s.protein?.toFixed(1)}g</Text>
-                        <Text style={styles.historyMacroText}>🌾 {s.carbs?.toFixed(1)}g</Text>
+                        <Text style={[styles.historyMacroText, { color: theme.muted }]}>🔥 {s.calories} kcal</Text>
+                        <Text style={[styles.historyMacroText, { color: theme.muted }]}>🥩 {s.protein?.toFixed(1)}g</Text>
+                        <Text style={[styles.historyMacroText, { color: theme.muted }]}>🌾 {s.carbs?.toFixed(1)}g</Text>
                       </View>
                     </View>
                     <View style={styles.historyRight}>
@@ -301,7 +291,7 @@ export default function FoodScanner() {
                         <Text style={[styles.healthBadgeText, { color: hh.color }]}>{hh.label}</Text>
                       </View>
                       <TouchableOpacity onPress={() => deleteHistoryItem(s.id)} style={styles.deleteBtn}>
-                        <Text style={styles.deleteText}>✕</Text>
+                        <Text style={[styles.deleteText, { color: theme.danger }]}>✕</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -318,8 +308,6 @@ export default function FoodScanner() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#0a0e1a" },
   container: { padding: 20, paddingBottom: 40 },
-  backBtn: { flexDirection: "row", alignItems: "center", marginBottom: 16, paddingVertical: 8 },
-  backText: { fontSize: 16, fontWeight: "600", color: "#00e5a0", marginLeft: 4 },
   titleRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 },
   title: { fontSize: 24, fontWeight: "800", color: "#fff", marginBottom: 4 },
   sub: { fontSize: 13, color: "#6b7a99", marginBottom: 20 },
